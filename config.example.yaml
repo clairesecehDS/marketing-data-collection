@@ -1,0 +1,425 @@
+# ============================================================
+# Marketing Data Collection - Configuration
+# ============================================================
+#
+# Ce fichier contient tous les paramètres configurables pour
+# la collecte de données marketing (LinkedIn, Clarity, SpyFu)
+#
+# INSTRUCTIONS :
+# 1. Copier ce fichier en "config.yaml"
+# 2. Remplir vos credentials et paramètres
+# 3. Ne JAMAIS commiter config.yaml dans Git !
+#
+# ============================================================
+
+# ============================================================
+# GOOGLE CLOUD & BIGQUERY
+# ============================================================
+google_cloud:
+  project_id: "votre-project-id"  # Ex: clean-avatar-466709-a0
+  credentials_file: "./account-key.json"  # Chemin vers le Service Account JSON
+
+  # Datasets BigQuery
+  datasets:
+    linkedin: "linkedin"
+    clarity: "microsoft_clarity"
+    spyfu: "spyfu"
+
+  # Région des données
+  location: "EU"  # EU, US, asia-northeast1, etc.
+
+
+# ============================================================
+# LINKEDIN
+# ============================================================
+linkedin:
+  # OAuth 2.0 Credentials
+  oauth:
+    client_id: "VOTRE_CLIENT_ID"
+    client_secret: "VOTRE_CLIENT_SECRET"
+    refresh_token: "VOTRE_REFRESH_TOKEN"
+
+    # Redirect URI pour le flow OAuth (génération de tokens)
+    # Option 1 : Outil officiel LinkedIn (recommandé pour première fois)
+    redirect_uri: "https://www.linkedin.com/developers/tools/oauth/redirect"
+    # Option 2 : Localhost sur port 8000
+    # redirect_uri: "http://localhost:8000/auth/linkedin/callback"
+
+    # Scopes OAuth nécessaires (liste par défaut complète)
+    scopes:
+      - "r_ads"                          # Retrieve advertising accounts
+      - "rw_ads"                         # Manage advertising accounts
+      - "r_ads_reporting"                # Retrieve reporting
+      - "r_ads_leadgen_automation"       # Access Lead Gen Forms
+      - "r_basicprofile"                 # Basic profile
+      - "r_liteprofile"                  # Name and photo
+      - "r_organization_social"          # Organization posts
+      - "r_organization_admin"           # Organization pages
+      - "w_organization_social"          # Create posts
+      - "rw_organization_admin"          # Manage organization
+      - "w_member_social"                # Create posts on behalf
+      - "r_1st_connections_size"         # Connections count
+      - "r_marketing_leadgen_automation" # Lead gen forms
+      - "r_events"                       # Retrieve events
+      - "rw_events"                      # Manage events
+
+  # Ad Account
+  account_id: "503061133"  # Votre Ad Account ID
+
+  # Configuration de collecte
+  collection:
+    # Période de collecte (format YYYY-MM-DD)
+    start_date: "2024-01-01"
+    # end_date laissé vide = aujourd'hui
+    end_date: null
+
+    # Granularité des données
+    granularity: "DAILY"  # DAILY, MONTHLY, YEARLY, ALL
+
+    # Version API LinkedIn
+    api_version: "202509"
+
+  # Analytics - Pivots à collecter
+  analytics:
+    pivots:
+      - "CAMPAIGN"   # Données agrégées par campagne
+      - "CREATIVE"   # Données par creative individuelle
+
+  # Métriques à collecter (analytics)
+  metrics:
+    base:
+      - impressions
+      - clicks
+      - cost_in_usd
+      - cost_in_local_currency
+      - ctr
+      - average_cpc
+
+    conversions:
+      - total_conversions
+      - conversion_value_in_usd
+      - cost_per_conversion
+      - conversion_rate
+
+    engagement:
+      - likes
+      - comments
+      - shares
+      - follows
+      - engagement_rate
+      - clicks_on_company_page
+
+    video:
+      - video_views
+      - video_starts
+      - video_completions
+      - video_first_quartile_completions
+      - video_midpoint_completions
+      - video_third_quartile_completions
+      - video_completion_rate
+
+  # Budget - Métriques à collecter
+  budget_metrics:
+    - total_budget
+    - daily_budget
+    - bid_type
+    - bid_amount
+    - unit_cost
+    - start_date
+    - end_date
+    - status
+    - run_schedule_start
+    - run_schedule_end
+
+  # Lead Forms - Configuration
+  lead_forms:
+    # Période de collecte des réponses
+    collection_period_days: 30
+
+    # Champs à extraire
+    fields:
+      - email
+      - first_name
+      - last_name
+      - company
+      - job_title
+      - phone
+      - country
+      - custom_fields
+
+
+# ============================================================
+# MICROSOFT CLARITY
+# ============================================================
+microsoft_clarity:
+  # API Credentials
+  project_id: "VOTRE_PROJECT_ID"
+  api_key: "VOTRE_API_KEY"
+
+  # API Configuration
+  api:
+    base_url: "https://www.clarity.ms/api/project-live-insights"
+    num_of_days: 1  # 1, 2 ou 3 maximum (limitation API)
+
+  # Métriques à collecter
+  metrics:
+    traffic:
+      - total_sessions
+      - total_users
+      - page_views
+
+    engagement:
+      - avg_engagement_time
+      - scroll_depth
+
+    frustration:
+      - dead_clicks
+      - rage_clicks
+      - quick_backs
+      - excessive_scrolling
+
+    errors:
+      - error_clicks
+      - script_errors
+
+    dimensions:
+      - browser_breakdown
+      - device_breakdown
+      - os_breakdown
+      - user_geography
+
+
+# ============================================================
+# SPYFU
+# ============================================================
+spyfu:
+  # API Credentials
+  api_key: "VOTRE_SECRET_KEY"  # Secret Key, pas l'ID !
+
+  # Configuration globale
+  global:
+    country_code: "FR"  # FR, US, DE, GB, etc.
+    page_size: 1000     # Nombre de résultats par requête (max 10000)
+
+  # Domaines à analyser
+  domains:
+    # Votre domaine principal
+    primary: "votre-domaine.com"
+
+    # Concurrents à surveiller
+    competitors:
+      - "concurrent1.com"
+      - "concurrent2.com"
+      - "concurrent3.com"
+
+  # Comparaisons SEO (pour outrank_comparison)
+  comparisons:
+    - domain: "votre-domaine.com"
+      compare_domain: "concurrent1.com"
+
+    - domain: "votre-domaine.com"
+      compare_domain: "concurrent2.com"
+
+    - domain: "votre-domaine.com"
+      compare_domain: "concurrent3.com"
+
+  # Filtres par défaut
+  filters:
+    # Volume de recherche minimum
+    min_search_volume: 100
+
+    # Difficulté de ranking maximum
+    max_keyword_difficulty: 80
+
+    # CPC maximum
+    max_cost_per_click: 50.0
+
+    # Clics SEO minimum
+    min_seo_clicks: 10
+
+  # PPC Keywords
+  ppc_keywords:
+    enabled: true
+    sort_by: "SearchVolume"  # SearchVolume, RankingDifficulty, CostPerClick
+    filters:
+      min_search_volume: 100
+
+  # New Keywords
+  new_keywords:
+    enabled: true
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 50
+
+  # Paid SERPs
+  paid_serps:
+    enabled: true
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 100
+      min_ad_count: 2
+
+  # SEO Keywords
+  seo_keywords:
+    enabled: true
+    search_type: "MostValuable"  # MostValuable, GainedClicks, LostClicks, JustMadeIt, JustLostIt, All
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 100
+      min_seo_clicks: 10
+
+  # Newly Ranked
+  newly_ranked:
+    enabled: true
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 50
+      max_rank: 50  # Seulement top 50
+
+  # Outrank Comparison
+  outrank_comparison:
+    enabled: true
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 100
+
+  # Top Pages
+  top_pages:
+    enabled: true
+    sort_by: "EstMonthlySeoClicks"
+    filters:
+      min_seo_clicks: 50
+
+  # PPC Competitors
+  ppc_competitors:
+    enabled: true
+    page_size: 50  # Nombre de concurrents à récupérer
+    sort_by: "CommonTerms"
+
+
+# ============================================================
+# AUTOMATISATION
+# ============================================================
+automation:
+  # Fréquences de collecte recommandées
+  schedules:
+    linkedin:
+      campaign_analytics: "daily"      # Quotidien à 3h
+      budget: "weekly"                 # Hebdomadaire (lundi)
+      lead_forms: "twice_daily"        # 2x/jour (8h, 18h)
+
+    clarity:
+      analytics: "daily"               # OBLIGATOIRE quotidien à 2h
+
+    spyfu:
+      ppc_keywords: "weekly"           # Hebdomadaire (dimanche)
+      seo_keywords: "weekly"           # Hebdomadaire (dimanche)
+      other: "monthly"                 # Mensuel (1er du mois)
+
+  # Logs
+  logging:
+    directory: "/var/log/marketing_collection"
+    retention_days: 30
+    level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+
+
+# ============================================================
+# EXPORT & BACKUP
+# ============================================================
+export:
+  # Formats d'export
+  formats:
+    json:
+      enabled: true
+      compression: false  # gzip compression
+
+    csv:
+      enabled: false
+      delimiter: ","
+
+    parquet:
+      enabled: false
+
+  # Backup
+  backup:
+    enabled: true
+    retention_days: 90
+
+    # Backup vers Google Cloud Storage (optionnel)
+    gcs:
+      enabled: false
+      bucket: "marketing-data-backup"
+      path: "backups/"
+
+
+# ============================================================
+# ALERTES & MONITORING
+# ============================================================
+monitoring:
+  # Alertes par email
+  alerts:
+    enabled: false
+    email: "admin@example.com"
+
+    # Conditions d'alerte
+    conditions:
+      - type: "data_freshness"
+        threshold_days: 2
+        message: "Données pas mises à jour depuis {days} jours"
+
+      - type: "collection_failure"
+        consecutive_failures: 3
+        message: "Échec de collecte {count} fois consécutives"
+
+      - type: "budget_alert"
+        budget_used_percentage: 80
+        message: "Budget utilisé à {percent}%"
+
+  # Dashboard
+  dashboard:
+    enabled: false
+    type: "looker_studio"  # looker_studio, tableau, metabase
+    url: null
+
+
+# ============================================================
+# ADVANCED SETTINGS
+# ============================================================
+advanced:
+  # Timeouts API (secondes)
+  timeouts:
+    linkedin: 60
+    clarity: 60
+    spyfu: 60
+
+  # Retry logic
+  retry:
+    max_attempts: 3
+    backoff_factor: 2  # Exponentiel : 2s, 4s, 8s
+
+  # Rate limiting
+  rate_limiting:
+    requests_per_minute: 30
+    pause_between_requests: 2  # secondes
+
+  # Déduplication BigQuery
+  deduplication:
+    enabled: true
+    merge_strategy: "WRITE_APPEND"  # WRITE_APPEND, WRITE_TRUNCATE
+
+
+# ============================================================
+# DEVELOPMENT & DEBUG
+# ============================================================
+development:
+  # Mode debug
+  debug_mode: false
+
+  # Dry run (ne pas uploader vers BigQuery)
+  dry_run: false
+
+  # Limiter le nombre de résultats (pour tests)
+  limit_results: null  # null = pas de limite, ou nombre (ex: 10)
+
+  # Verbose logging
+  verbose: false

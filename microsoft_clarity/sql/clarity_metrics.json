@@ -1,0 +1,25 @@
+[
+  {
+    "date": "2025-10-14 15:49:52.431066",
+    "name": null,
+    "url": null,
+    "page_titles": null,
+    "popular_pages": "[{\"url\": \"https://pontsbschool.com/\", \"visitsCount\": \"80\"}, {\"url\": \"https://pontsbschool.com/edba/\", \"visitsCount\": \"57\"}, {\"url\": \"https://pontsbschool.com/serve-leadbox/gocAuQ9CV7wYCzDaTjVc98/\", \"visitsCount\": \"48\"}, {\"url\": \"https://pontsbschool.com/serve-leadbox/QoZddEeKJN4BMs2xBKPeuH/\", \"visitsCount\": \"43\"}, {\"url\": \"https://pontsbschool.com/serve-leadbox/A4vqcCQRXQ35hKgsgpGhQA/\", \"visitsCount\": \"42\"}, {\"url\": \"https://pontsbschool.com/serve-leadbox/Yst8i85Qr9aFfVZwjZL8En/\", \"visitsCount\": \"40\"}, {\"url\": \"https://pontsbschool.com/leadtech/\", \"visitsCount\": \"30\"}, {\"url\": \"https://pontsbschool.com/serve-leadbox/hstxXjaPzTcAfHAvw2b2z2/\", \"visitsCount\": \"21\"}, {\"url\": \"https://pontsbschool.com/serve-leadbox/9YMxkkiGuxu6Hgw2DUPeac/\", \"visitsCount\": \"11\"}, {\"url\": \"https://pontsbschool.com/serve-leadbox/RvFfw3RaNqRouePhLfpHpK/\", \"visitsCount\": \"9\"}]",
+    "referrer_urls": null,
+    "total_sessions": 364,
+    "total_users": 277,
+    "page_views": null,
+    "avg_engagement_time": 0.0,
+    "scroll_depth": 50.0,
+    "dead_clicks": 54,
+    "rage_clicks": 0,
+    "quick_backs": 22,
+    "excessive_scrolling": 0,
+    "error_clicks": 0,
+    "script_errors": 92,
+    "browser_breakdown": "[{\"name\": \"Chrome\", \"sessionsCount\": \"149\"}, {\"name\": \"ChromeMobile\", \"sessionsCount\": \"117\"}, {\"name\": \"MobileSafari\", \"sessionsCount\": \"40\"}, {\"name\": \"Edge\", \"sessionsCount\": \"20\"}, {\"name\": \"Safari\", \"sessionsCount\": \"19\"}, {\"name\": \"SamsungInternet\", \"sessionsCount\": \"6\"}, {\"name\": \"Firefox\", \"sessionsCount\": \"6\"}, {\"name\": \"FacebookApp\", \"sessionsCount\": \"3\"}, {\"name\": \"InstagramApp\", \"sessionsCount\": \"2\"}, {\"name\": \"GoogleApp\", \"sessionsCount\": \"1\"}]",
+    "device_breakdown": "[{\"name\": \"PC\", \"sessionsCount\": \"193\"}, {\"name\": \"Mobile\", \"sessionsCount\": \"149\"}, {\"name\": \"Tablet\", \"sessionsCount\": \"22\"}]",
+    "os_breakdown": "[{\"name\": \"Windows\", \"sessionsCount\": \"139\"}, {\"name\": \"Android\", \"sessionsCount\": \"109\"}, {\"name\": \"IOS\", \"sessionsCount\": \"62\"}, {\"name\": \"MacOSX\", \"sessionsCount\": \"53\"}, {\"name\": \"ChromeOS\", \"sessionsCount\": \"1\"}]",
+    "user_geography": null
+  }
+]
