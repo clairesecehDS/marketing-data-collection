@@ -332,6 +332,8 @@ Le script va :
 2. ✅ Générer les fichiers SQL avec le bon Project ID dans `generated_sql/`
 3. ✅ Vous proposer d'exécuter automatiquement via `bq` CLI ou manuellement
 
+Pour l'exécution automatique, il faudra au préalable vous **authentifier** avec `gcloud auth login` puis sélectionner le projet avec `gcloud config set project votre-project-id`.
+
 **Fichiers SQL traités (7 fichiers) :**
 - `linkedin/sql/bigquery_campaign_creative_schema.sql`
 - `linkedin/sql/bigquery_campaign_creative_budget_schema.sql`
@@ -399,22 +401,6 @@ BigQuery peut se connecter **directement** aux services Google sans code ni scri
 - Mise à jour quotidienne automatique
 - Colonnes : url, query, impressions, clicks, position, country, device, etc.
 
-**Exemple de requête :**
-
-```sql
-SELECT
-  data_date,
-  query,
-  SUM(impressions) as total_impressions,
-  SUM(clicks) as total_clicks,
-  AVG(sum_position / impressions) as avg_position
-FROM `votre-project-id.google_search_console.searchdata_site_impression`
-WHERE data_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-GROUP BY data_date, query
-ORDER BY total_clicks DESC
-LIMIT 100;
-```
-
 ---
 
 #### 7.2 - Google Analytics 4 → BigQuery
@@ -439,36 +425,6 @@ LIMIT 100;
 - Tables créées automatiquement : `events_YYYYMMDD` (une par jour)
 - Table intraday : `events_intraday_YYYYMMDD` (si streaming activé)
 - Schéma nested avec événements, paramètres, user properties
-
-**Exemple de requête - Sessions et utilisateurs :**
-
-```sql
-SELECT
-  PARSE_DATE('%Y%m%d', event_date) as date,
-  COUNT(DISTINCT user_pseudo_id) as users,
-  COUNT(DISTINCT CONCAT(user_pseudo_id,
-    (SELECT value.int_value FROM UNNEST(event_params)
-     WHERE key = 'ga_session_id'))) as sessions
-FROM `votre-project-id.analytics_XXXXXXXXX.events_*`
-WHERE _TABLE_SUFFIX BETWEEN '20250101' AND '20251231'
-GROUP BY date
-ORDER BY date DESC;
-```
-
-**Exemple de requête - Top pages :**
-
-```sql
-SELECT
-  (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location') as page_url,
-  COUNT(*) as page_views,
-  COUNT(DISTINCT user_pseudo_id) as unique_users
-FROM `votre-project-id.analytics_XXXXXXXXX.events_*`
-WHERE event_name = 'page_view'
-  AND _TABLE_SUFFIX BETWEEN '20250101' AND '20251231'
-GROUP BY page_url
-ORDER BY page_views DESC
-LIMIT 20;
-```
 
 ---
 
@@ -502,41 +458,6 @@ LIMIT 20;
 - Mise à jour quotidienne automatique
 - Historique : jusqu'à 13 mois de données
 
-**Exemple de requête - Performances campagnes :**
-
-```sql
-SELECT
-  c.campaign_name,
-  SUM(c.impressions) as total_impressions,
-  SUM(c.clicks) as total_clicks,
-  SUM(c.conversions) as total_conversions,
-  SUM(c.cost_micros) / 1000000 as total_cost_usd,
-  SAFE_DIVIDE(SUM(c.clicks), SUM(c.impressions)) * 100 as ctr,
-  SAFE_DIVIDE(SUM(c.cost_micros) / 1000000, SUM(c.clicks)) as cpc
-FROM `votre-project-id.google_ads.Campaign_XXXXXXXX` c
-WHERE c.segments_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-  AND c.campaign_status = 'ENABLED'
-GROUP BY c.campaign_name
-ORDER BY total_cost_usd DESC;
-```
-
-**Exemple de requête - Performance mots-clés :**
-
-```sql
-SELECT
-  k.ad_group_criterion_keyword_text as keyword,
-  k.segments_date as date,
-  SUM(k.impressions) as impressions,
-  SUM(k.clicks) as clicks,
-  SUM(k.cost_micros) / 1000000 as cost_usd,
-  SAFE_DIVIDE(SUM(k.clicks), SUM(k.impressions)) * 100 as ctr
-FROM `votre-project-id.google_ads.Keyword_XXXXXXXX` k
-WHERE k.segments_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
-GROUP BY keyword, date
-ORDER BY cost_usd DESC
-LIMIT 50;
-```
-
 ---
 
 #### 7.4 - Résumé des datasets créés
@@ -563,35 +484,6 @@ votre-project-id
 - ✅ Données historiques disponibles
 - ✅ Schéma maintenu par Google
 - ✅ Pas de gestion d'API keys
-
-**Analyse combinée possible :**
-
-```sql
--- Corrélation Google Ads + LinkedIn Ads
-SELECT
-  ga.segments_date as date,
-  'Google Ads' as source,
-  SUM(ga.impressions) as impressions,
-  SUM(ga.clicks) as clicks,
-  SUM(ga.cost_micros) / 1000000 as cost
-FROM `votre-project-id.google_ads.Campaign_XXXXXXXX` ga
-WHERE ga.segments_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-GROUP BY date, source
-
-UNION ALL
-
-SELECT
-  DATE(l.date) as date,
-  'LinkedIn Ads' as source,
-  SUM(l.impressions) as impressions,
-  SUM(l.clicks) as clicks,
-  SUM(l.costInUsd) as cost
-FROM `votre-project-id.linkedin_ads_advertising.campaign_analytics` l
-WHERE DATE(l.date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-GROUP BY date, source
-
-ORDER BY date DESC, source;
-```
 
 ---
 
@@ -623,13 +515,15 @@ FROM `spyfu.INFORMATION_SCHEMA.TABLES`;
 
 LinkedIn utilise OAuth 2.0 avec un **Refresh Token** qui ne change pas et permet de générer des **Access Tokens** temporaires (60 jours).
 
+⚠️ **Important :** Tous les credentials collectés dans cette section devront être renseignés dans le fichier `config.yaml` (voir Étape 6). Les scripts lisent automatiquement leurs configurations depuis ce fichier centralisé.
+
 **Flux OAuth :**
 ```
 1. Créer une App LinkedIn
 2. Obtenir Client ID + Client Secret
 3. Générer un Authorization Code (via navigateur)
 4. Échanger le code contre un Refresh Token
-5. Utiliser le Refresh Token dans les scripts
+5. Renseigner tous les credentials dans config.yaml
    → Les scripts génèrent automatiquement les Access Tokens
 ```
 
@@ -703,16 +597,126 @@ LinkedIn utilise OAuth 2.0 avec un **Refresh Token** qui ne change pas et permet
 
 ---
 
-### Étape 5 : Générer le Refresh Token
+### Étape 5 : Configurer config.yaml avec Client ID et Client Secret
 
-Voir la documentation complète dans [linkedin/README.md](linkedin/README.md) section "Configuration OAuth".
+⚠️ **Important :** Avant de générer le Refresh Token, vous devez d'abord renseigner le Client ID et le Client Secret dans `config.yaml`.
 
-**Résumé :**
-1. Configurer `token_linkedin.py` avec Client ID/Secret
-2. Exécuter le script
-3. Autoriser dans le navigateur
-4. Copier le code de l'URL
-5. Obtenir le Refresh Token
+1. **Ouvrir** `config.yaml` (ou créer depuis `config.example.yaml`)
+
+   ```bash
+   cd /home/cseceh/Deep_Scouting/admin/Projet_Ads/code
+   nano config.yaml
+   ```
+
+2. **Remplir la section LinkedIn OAuth** avec les informations de l'Étape 3 :
+
+   ```yaml
+   linkedin:
+     oauth:
+       client_id: "78xxxxxxxxxxxxxxxx"      # Client ID de l'Étape 3
+       client_secret: "WPxxxxxxxxxxxxxxxx"  # Client Secret de l'Étape 3
+       refresh_token: ""                    # Sera rempli après l'Étape 6
+       redirect_uri: "http://localhost:8080/callback"  # Doit correspondre à l'Étape 3
+       scopes:  # Scopes par défaut (peut être modifié si nécessaire)
+         - "r_ads"
+         - "rw_ads"
+         - "r_ads_reporting"
+         - "r_ads_leadgen_automation"
+   
+     account_id: "503061133"  # Ad Account ID de l'Étape 4
+   
+     collection:
+       start_date: "2024-01-01"
+       end_date: null  # null = aujourd'hui
+       granularity: "DAILY"
+       api_version: "202509"
+   
+     analytics:
+       pivots:
+         - "CAMPAIGN"
+         - "CREATIVE"
+   ```
+
+3. **Sauvegarder** le fichier
+
+4. **Sécuriser** le fichier
+
+   ```bash
+   chmod 600 config.yaml
+   ```
+
+⚠️ **Laissez `refresh_token` vide pour le moment** - Il sera généré à l'étape suivante.
+
+---
+
+### Étape 6 : Générer le Refresh Token
+
+Le Refresh Token est un token permanent qui permet aux scripts de générer automatiquement des Access Tokens.
+
+⚠️ **Prérequis :** Le fichier `config.yaml` doit être configuré avec `client_id` et `client_secret` (Étape 5).
+
+**Processus :**
+
+1. **Exécuter le script de génération de token**
+
+   Le script `token_linkedin.py` lit automatiquement les credentials depuis `config.yaml` :
+
+   ```bash
+   cd linkedin/scripts
+   python token_linkedin.py
+   ```
+
+2. **Autoriser dans le navigateur**
+   - Une page LinkedIn s'ouvre automatiquement
+   - Se connecter avec votre compte LinkedIn
+   - Cliquer sur **"Autoriser"** pour donner les permissions
+
+3. **Le script récupère automatiquement le code**
+   - Si `redirect_uri` est `localhost` : le code est capturé automatiquement
+   - Sinon : copier le code depuis l'URL de redirection
+
+4. **Le Refresh Token est affiché dans le terminal**
+
+   ```
+   ╔════════════════════════════════════════════════════════════════════╗
+   ║               ✓ ACCESS TOKEN GÉNÉRÉ AVEC SUCCÈS!                  ║
+   ╔════════════════════════════════════════════════════════════════════╝
+   
+   Access Token:
+   AQV...xxxxxxxxxxxxxxxxxx...
+   
+   Refresh Token:
+   AQV...yyyyyyyyyyyyyyyyyy...
+   ```
+
+5. **Copier le Refresh Token affiché** (la longue chaîne commençant par `AQV`)
+
+---
+
+### Étape 7 : Ajouter le Refresh Token dans config.yaml
+
+1. **Rouvrir** `config.yaml`
+
+   ```bash
+   nano config.yaml
+   ```
+
+2. **Ajouter le Refresh Token** dans la section LinkedIn OAuth :
+
+   ```yaml
+   linkedin:
+     oauth:
+       client_id: "78xxxxxxxxxxxxxxxx"
+       client_secret: "WPxxxxxxxxxxxxxxxx"
+       refresh_token: "AQVxxxxxxxxxxxxxxxx"  # ← COLLER LE REFRESH TOKEN ICI
+       redirect_uri: "http://localhost:8080/callback"
+   ```
+
+3. **Sauvegarder** le fichier
+
+✅ **Configuration terminée !** Les scripts LinkedIn liront automatiquement tous les credentials depuis `config.yaml`.
+
+**Voir aussi :** Documentation complète dans [linkedin/README.md](linkedin/README.md) section "Configuration OAuth".
 
 ---
 
@@ -801,9 +805,9 @@ python spyfu_seo_keywords.py
 Le repository contient déjà un `.gitignore` qui protège automatiquement :
 
 ```gitignore
-# Credentials Google Cloud
-account-key.json
-*.json
+# Fichiers de configuration sensibles
+config.yaml              # ⚠️ Contient tous les credentials (LinkedIn, Clarity, SpyFu)
+account-key.json         # Service Account Google Cloud
 
 # Tokens
 *_token.txt
@@ -823,6 +827,10 @@ venv/
 # Logs
 *.log
 ```
+
+⚠️ **Fichiers à ne JAMAIS commiter :**
+- `config.yaml` - Contient tous vos credentials (LinkedIn OAuth, API keys, etc.)
+- `account-key.json` - Clé du Service Account Google Cloud
 
 ⚠️ **Ne jamais modifier le .gitignore pour éviter de commit des credentials !**
 
@@ -904,14 +912,16 @@ google_cloud:
 
 #### 2. LinkedIn
 
+⚠️ **Important :** Les credentials OAuth LinkedIn (Client ID, Client Secret, Refresh Token) doivent être renseignés dans ce fichier `config.yaml`. Les scripts lisent automatiquement ces informations depuis ce fichier.
+
 ```yaml
 linkedin:
   oauth:
-    client_id: "VOTRE_CLIENT_ID"  # Depuis LinkedIn App
-    client_secret: "VOTRE_CLIENT_SECRET"
-    refresh_token: "VOTRE_REFRESH_TOKEN"  # Token permanent
+    client_id: "78xxxxxxxxxxxxxxxx"  # Client ID depuis LinkedIn App (Étape 3)
+    client_secret: "WPxxxxxxxxxxxxxxxx"  # Client Secret depuis LinkedIn App (Étape 3)
+    refresh_token: "AQVxxxxxxxxxxxxxxxx"  # Refresh Token généré via token_linkedin.py (Étape 5)
 
-  account_id: "503061133"  # Votre Ad Account ID
+  account_id: "503061133"  # Votre Ad Account ID (Étape 4)
 
   collection:
     start_date: "2024-01-01"  # Date de début de collecte
@@ -1090,35 +1100,48 @@ Attendre et espacer les requêtes.
 
 ## ✅ Checklist de déploiement
 
+### Configuration initiale
+
+- [ ] Repository cloné depuis GitHub
+- [ ] Fichier `config.yaml` créé depuis `config.example.yaml`
+- [ ] Dépendances Python installées (`requirements.txt`)
+
 ### Google Cloud
 
 - [ ] Projet GCP créé
 - [ ] BigQuery API activée
 - [ ] Service Account créé avec permissions
-- [ ] Clé JSON téléchargée et sécurisée
-- [ ] 3 datasets créés
-- [ ] Tables créées depuis SQL
+- [ ] Clé JSON téléchargée et renommée `account-key.json`
+- [ ] `account-key.json` sécurisé (chmod 600)
+- [ ] Project ID ajouté dans `config.yaml`
+- [ ] 6 datasets créés (linkedin x4, clarity, spyfu)
+- [ ] Tables créées depuis SQL (via `setup_bigquery.py`)
 
 ### LinkedIn
 
 - [ ] App LinkedIn créée
 - [ ] Marketing Developer Platform approuvé
-- [ ] Refresh Token généré
-- [ ] Ad Account ID récupéré
-- [ ] Scripts configurés
+- [ ] Client ID et Client Secret récupérés (Étape 3)
+- [ ] Redirect URL configuré : `http://localhost:8080/callback` (Étape 3)
+- [ ] Ad Account ID récupéré (Étape 4)
+- [ ] **Client ID et Client Secret ajoutés dans `config.yaml`** (Étape 5)
+- [ ] Refresh Token généré via `token_linkedin.py` (Étape 6)
+- [ ] **Refresh Token ajouté dans `config.yaml`** (Étape 7)
 
 ### Clarity
 
 - [ ] Projet Clarity créé
-- [ ] Tracking code installé
-- [ ] API Key récupérée
-- [ ] Script configuré
+- [ ] Tracking code installé sur le site
+- [ ] Project ID récupéré
+- [ ] API Key (JWT) récupérée
+- [ ] **Credentials ajoutés dans `config.yaml`** (project_id, api_key)
 
 ### SpyFu
 
-- [ ] API Secret Key récupérée
-- [ ] Domaines définis
-- [ ] Scripts configurés
+- [ ] API Secret Key récupérée depuis compte SpyFu
+- [ ] Domaines à surveiller définis
+- [ ] Concurrents identifiés
+- [ ] **Credentials et domaines ajoutés dans `config.yaml`** (api_key, domains, competitors)
 
 ### Tests
 
