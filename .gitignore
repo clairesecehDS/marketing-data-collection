@@ -14,6 +14,7 @@ account-key.json
 *.log
 logs/
 *.log.*
+*.pdf
 
 # Données et backups
 data/
@@ -77,3 +78,6 @@ temp/
 *.tmp
 *.bak
 *.backup
+
+# SQL générés (avec Project ID)
+generated_sql/
