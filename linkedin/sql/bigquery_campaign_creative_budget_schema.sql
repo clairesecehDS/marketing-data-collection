@@ -8,7 +8,7 @@
 -- =====================================================
 -- Table 1: Campaign Budget
 -- =====================================================
-CREATE TABLE IF NOT EXISTS `linkedin_ads_advertising.campaign_budget` (
+CREATE TABLE IF NOT EXISTS `project-id.linkedin_ads_advertising.campaign_budget` (
   -- Identifiants
   campaign_id STRING NOT NULL,
   campaign_urn STRING,
@@ -47,7 +47,7 @@ CLUSTER BY campaign_id, start_date;
 -- =====================================================
 -- Table 2: Creative Budget
 -- =====================================================
-CREATE TABLE IF NOT EXISTS `linkedin_ads_advertising.creative_budget` (
+CREATE TABLE IF NOT EXISTS `project-id.linkedin_ads_advertising.creative_budget` (
   -- Identifiants
   creative_id STRING NOT NULL,
   creative_urn STRING,
@@ -90,7 +90,7 @@ CLUSTER BY creative_id, campaign_id, start_date;
 -- =====================================================
 
 -- View: Active campaigns with budget status
-CREATE OR REPLACE VIEW `linkedin_ads_advertising.v_active_campaign_budgets` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_ads_advertising.v_active_campaign_budgets` AS
 SELECT
   campaign_id,
   campaign_urn,
@@ -106,12 +106,12 @@ SELECT
   end_date,
   CURRENT_DATE() BETWEEN start_date AND COALESCE(end_date, '2099-12-31') AS is_currently_active,
   retrieved_at
-FROM `linkedin_ads_advertising.campaign_budget`
-WHERE DATE(retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `linkedin_ads_advertising.campaign_budget`)
+FROM `project-id.linkedin_ads_advertising.campaign_budget`
+WHERE DATE(retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `project-id.linkedin_ads_advertising.campaign_budget`)
 ORDER BY budget_spent DESC;
 
 -- View: Budget summary by campaign
-CREATE OR REPLACE VIEW `linkedin_ads_advertising.v_campaign_budget_summary` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_ads_advertising.v_campaign_budget_summary` AS
 SELECT
   campaign_id,
   COUNT(*) AS data_points,
@@ -122,7 +122,7 @@ SELECT
   MAX(lifetime_budget) AS lifetime_budget,
   AVG(daily_budget) AS avg_daily_budget,
   MAX(bid_amount) AS current_bid_amount
-FROM `linkedin_ads_advertising.campaign_budget`
+FROM `project-id.linkedin_ads_advertising.campaign_budget`
 GROUP BY campaign_id
 ORDER BY current_budget_spent DESC;
 
@@ -139,7 +139,7 @@ SELECT
   budget_remaining,
   SAFE_DIVIDE(budget_spent, lifetime_budget) * 100 AS pct_spent,
   end_date
-FROM `linkedin_ads_advertising.campaign_budget`
+FROM `project-id.linkedin_ads_advertising.campaign_budget`
 WHERE DATE(retrieved_at) = CURRENT_DATE()
   AND SAFE_DIVIDE(budget_spent, lifetime_budget) > 0.9
 ORDER BY pct_spent DESC;
@@ -153,7 +153,7 @@ SELECT
   daily_budget,
   budget_spent,
   budget_spent - LAG(budget_spent) OVER (PARTITION BY campaign_id ORDER BY retrieved_at) AS daily_actual_spend
-FROM `linkedin_ads_advertising.campaign_budget`
+FROM `project-id.linkedin_ads_advertising.campaign_budget`
 WHERE campaign_id = 'YOUR_CAMPAIGN_ID'
 ORDER BY retrieved_at DESC;
 */
@@ -168,7 +168,7 @@ SELECT
   max_bid,
   budget_spent,
   CURRENT_DATE() BETWEEN start_date AND COALESCE(end_date, '2099-12-31') AS is_active
-FROM `linkedin_ads_advertising.campaign_budget`
+FROM `project-id.linkedin_ads_advertising.campaign_budget`
 WHERE DATE(retrieved_at) = CURRENT_DATE()
 ORDER BY bid_amount DESC;
 */
@@ -188,7 +188,7 @@ SELECT
               DATE_DIFF(COALESCE(end_date, CURRENT_DATE()), start_date, DAY)) * 100 AS pct_time_elapsed,
   pacing_type,
   pacing_rate
-FROM `linkedin_ads_advertising.campaign_budget`
+FROM `project-id.linkedin_ads_advertising.campaign_budget`
 WHERE DATE(retrieved_at) = CURRENT_DATE()
   AND start_date <= CURRENT_DATE()
   AND (end_date IS NULL OR end_date >= CURRENT_DATE())

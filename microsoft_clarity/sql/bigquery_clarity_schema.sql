@@ -8,7 +8,7 @@
 -- =====================================================
 -- Main Table: Clarity Metrics (Official Format)
 -- =====================================================
-CREATE TABLE IF NOT EXISTS `microsoft_clarity.clarity_metrics` (
+CREATE TABLE IF NOT EXISTS `project-id.microsoft_clarity.clarity_metrics` (
   -- Date
   date TIMESTAMP NOT NULL,
 

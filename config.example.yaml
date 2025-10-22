@@ -21,12 +21,18 @@ google_cloud:
 
   # Datasets BigQuery
   datasets:
-    linkedin: "linkedin"
+    # LinkedIn datasets (4 datasets au total)
+    linkedin_ads: "linkedin_ads_advertising"
+    linkedin_library: "linkedin_ads_library"
+    linkedin_leadgen: "linkedin_leadgen_form"
+    linkedin_page: "linkedin_page"
+
+    # Autres datasets
     clarity: "microsoft_clarity"
     spyfu: "spyfu"
 
   # Région des données
-  location: "EU"  # EU, US, asia-northeast1, etc.
+  location: "europe-west9"  # us-central1, asia-northeast1, etc.
 
 
 # ============================================================

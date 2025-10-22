@@ -49,7 +49,8 @@ nano config.yaml
 ```bash
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-pip install requests pandas pandas-gbq google-auth google-cloud-bigquery "numpy<2.0.0" pyyaml
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
 ### 4. Exécuter un script
@@ -106,7 +107,10 @@ marketing-data-collection/
 ├── config.example.yaml         # Template de configuration
 ├── config.yaml                 # Configuration (à créer, non commité)
 ├── config_loader.py            # Utilitaire de chargement config
+├── setup_bigquery.py           # Script de setup BigQuery (avec config)
+├── requirements.txt            # Dépendances Python
 ├── account-key.json            # Service Account GCP (à créer, non commité)
+├── .gitignore                  # Fichiers à ignorer (déjà inclus)
 │
 ├── linkedin/
 │   ├── README.md
@@ -226,29 +230,69 @@ Voir [SETUP_GUIDE.md - Configuration détaillée](SETUP_GUIDE.md#️-configurati
 
 ## 📊 Tables BigQuery
 
-### LinkedIn (7 tables)
+### LinkedIn Ads Advertising (4 tables + 6 vues)
+
+**Tables :**
 - `campaign_analytics` - Métriques par campagne
 - `creative_analytics` - Métriques par creative
-- `campaign_metadata` - Informations campagnes
-- `creative_metadata` - Informations creatives
-- `budget_data` - Budgets et enchères
-- `lead_form_responses` - Réponses lead forms
-- `lead_form_questions` - Questions des formulaires
+- `campaign_budget` - Budgets campagnes
+- `creative_budget` - Budgets creatives
+
+**Vues :**
+- `v_active_campaign_budget` - Budgets des campagnes actives
+- `v_campaign_budget_summary` - Résumé budgets par campagne
+- `v_campaign_creative_reconciliation` - Réconciliation campagnes/creatives
+- `v_latest_campaign_metrics` - Dernières métriques campagnes
+- `v_overall_performance` - Performance globale
+- `v_top_creatives_by_campaign` - Top creatives par campagne
+
+### LinkedIn Ads Library (1 table)
+- `ads_library` - Bibliothèque publicités (surveillance concurrence)
+
+### LinkedIn Lead Gen Forms (3 tables + 4 vues)
+
+**Tables :**
+- `lead_forms` - Formulaires de lead
+- `lead_form_responses` - Réponses aux formulaires
+- `lead_form_metrics` - Métriques des formulaires
+
+**Vues :**
+- `v_lead_performance_by_campaign` - Performance leads par campagne
+- `v_lead_quality_dashboard` - Dashboard qualité leads
+- `v_lead_sla_monitoring` - Monitoring SLA leads
+- `v_lead_volume_anomalies` - Détection anomalies volume leads
+
+### LinkedIn Page Statistics (1 table + 4 vues)
+
+**Tables :**
+- `linkedin_page_statistics` - Statistiques page LinkedIn
+
+**Vues :**
+- `v_followers_demographics` - Démographie des followers
+- `v_growth_trends` - Tendances de croissance
+- `v_page_performance_summary` - Résumé performance page
+- `v_top_posts` - Top posts
 
 ### Microsoft Clarity (1 table)
-- `clarity_metrics` - Toutes les métriques (traffic, engagement, frustration, errors)
+- `clarity_metrics` - Métriques comportement utilisateur (traffic, engagement, frustration, errors)
 
-### SpyFu (8 tables)
+### SpyFu (8 tables + 26 vues)
+
+**Tables :**
 - `ppc_keywords` - Mots-clés PPC
 - `new_keywords` - Nouveaux mots-clés
 - `paid_serps` - SERPs payants
 - `seo_keywords` - Mots-clés SEO
 - `newly_ranked` - Nouveaux rankings
-- `outrank_comparison` - Comparaisons
-- `top_pages` - Pages performantes
+- `outrank_comparison` - Comparaisons ranking
+- `top_pages` - Pages les plus performantes
 - `ppc_competitors` - Concurrents PPC
 
-**+ 38 vues SQL** pour faciliter l'analyse
+**26 vues** pour analyses avancées SEO/PPC
+
+---
+
+**Total : 21 tables + 40 vues SQL**
 
 ---
 
@@ -342,7 +386,8 @@ nano config.yaml
 # Installer
 python -m venv venv
 source venv/bin/activate
-pip install requests pandas pandas-gbq google-auth google-cloud-bigquery "numpy<2.0.0" pyyaml
+pip install --upgrade pip
+pip install -r requirements.txt
 
 # Créer les tables BigQuery
 # (Exécuter les fichiers SQL depuis la console BigQuery)
@@ -413,20 +458,20 @@ Espacer les requêtes, attendre, vérifier les quotas.
 
 ## 📦 Dépendances Python
 
-```
-requests
-pandas
-pandas-gbq
-google-auth
-google-cloud-bigquery
-pyyaml
-numpy<2.0.0
-```
+Toutes les dépendances sont listées dans [requirements.txt](requirements.txt) :
+
+- `requests>=2.31.0` - Requêtes HTTP
+- `pandas>=2.0.0` - Manipulation de données
+- `numpy<2.0.0` - Calculs numériques (⚠️ version <2.0 requise)
+- `google-auth>=2.23.0` - Authentification Google Cloud
+- `google-cloud-bigquery>=3.11.0` - Client BigQuery
+- `pandas-gbq>=0.19.0` - Intégration pandas-BigQuery
+- `pyyaml>=6.0` - Lecture fichiers YAML
 
 Installation :
 
 ```bash
-pip install requests pandas pandas-gbq google-auth google-cloud-bigquery "numpy<2.0.0" pyyaml
+pip install -r requirements.txt
 ```
 
 ---

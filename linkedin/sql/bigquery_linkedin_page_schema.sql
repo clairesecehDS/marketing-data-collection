@@ -8,7 +8,7 @@
 -- =====================================================
 -- Main Table: LinkedIn Page Statistics
 -- =====================================================
-CREATE TABLE IF NOT EXISTS `linkedin_page.linkedin_page_statistics` (
+CREATE TABLE IF NOT EXISTS `project-id.linkedin_page.linkedin_page_statistics` (
   -- Identifiers
   organization_id STRING NOT NULL,
   organization_urn STRING,
@@ -66,11 +66,11 @@ CLUSTER BY organization_id, metric_category, time_granularity;
 -- =====================================================
 
 -- View: Overall Page Performance Summary
-CREATE OR REPLACE VIEW `linkedin_page.v_page_performance_summary` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_page.v_page_performance_summary` AS
 WITH latest_data AS (
   SELECT *
-  FROM `linkedin_page.linkedin_page_statistics`
-  WHERE DATE(retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `linkedin_page.linkedin_page_statistics`)
+  FROM `project-id.linkedin_page.linkedin_page_statistics`
+  WHERE DATE(retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `project-id.linkedin_page.linkedin_page_statistics`)
 )
 SELECT
   organization_id,
@@ -101,7 +101,7 @@ FROM latest_data
 GROUP BY organization_id;
 
 -- View: Top Performing Posts
-CREATE OR REPLACE VIEW `linkedin_page.v_top_posts` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_page.v_top_posts` AS
 SELECT
   organization_id,
   share_urn,
@@ -116,16 +116,16 @@ SELECT
   click_through_rate,
   stat_date,
   retrieved_at
-FROM `linkedin_page.linkedin_page_statistics`
+FROM `project-id.linkedin_page.linkedin_page_statistics`
 WHERE metric_category = 'SHARE'
   AND pivot_type = 'share'
   AND share_urn IS NOT NULL
-  AND DATE(retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `linkedin_page.linkedin_page_statistics`)
+  AND DATE(retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `project-id.linkedin_page.linkedin_page_statistics`)
 ORDER BY engagement_rate DESC
 LIMIT 50;
 
 -- View: Follower Demographics Breakdown
-CREATE OR REPLACE VIEW `linkedin_page.v_follower_demographics` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_page.v_follower_demographics` AS
 SELECT
   organization_id,
   pivot_type,
@@ -133,14 +133,14 @@ SELECT
   follower_count,
   ROUND(SAFE_DIVIDE(follower_count, SUM(follower_count) OVER (PARTITION BY organization_id, pivot_type)) * 100, 2) AS percentage,
   retrieved_at
-FROM `linkedin_page.linkedin_page_statistics`
+FROM `project-id.linkedin_page.linkedin_page_statistics`
 WHERE metric_category = 'FOLLOWER'
   AND pivot_type IN ('industry', 'jobFunction', 'seniority', 'country', 'region')
-  AND DATE(retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `linkedin_page.linkedin_page_statistics`)
+  AND DATE(retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `project-id.linkedin_page.linkedin_page_statistics`)
 ORDER BY organization_id, pivot_type, follower_count DESC;
 
 -- View: Growth Trends Over Time
-CREATE OR REPLACE VIEW `linkedin_page.v_growth_trends` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_page.v_growth_trends` AS
 WITH daily_stats AS (
   SELECT
     organization_id,
@@ -149,7 +149,7 @@ WITH daily_stats AS (
     SUM(CASE WHEN metric_category = 'SHARE' THEN impressions END) AS daily_impressions,
     SUM(CASE WHEN metric_category = 'SHARE' THEN total_engagements END) AS daily_engagements,
     MAX(CASE WHEN metric_category = 'PAGE_VIEW' THEN page_views_unique_count END) AS daily_page_views
-  FROM `linkedin_page.linkedin_page_statistics`
+  FROM `project-id.linkedin_page.linkedin_page_statistics`
   WHERE time_granularity = 'DAILY'
     AND stat_date IS NOT NULL
   GROUP BY organization_id, stat_date
@@ -187,7 +187,7 @@ ORDER BY organization_id, stat_date DESC;
 -- Query 1: Overall page health snapshot
 /*
 SELECT *
-FROM `linkedin_page.v_page_performance_summary`
+FROM `project-id.linkedin_page.v_page_performance_summary`
 WHERE organization_id = '5509810';
 */
 
@@ -199,7 +199,7 @@ SELECT
   engagement_rate,
   total_engagements,
   stat_date
-FROM `linkedin_page.v_top_posts`
+FROM `project-id.linkedin_page.v_top_posts`
 WHERE stat_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
 ORDER BY engagement_rate DESC
 LIMIT 10;
@@ -212,7 +212,7 @@ SELECT
   demographic_value,
   follower_count,
   percentage
-FROM `linkedin_page.v_follower_demographics`
+FROM `project-id.linkedin_page.v_follower_demographics`
 WHERE organization_id = '5509810'
 ORDER BY pivot_type, follower_count DESC;
 */
@@ -224,7 +224,7 @@ SELECT
   SUM(daily_follower_gains) AS weekly_follower_gains,
   AVG(daily_impressions) AS avg_daily_impressions,
   SUM(daily_engagements) AS weekly_total_engagements
-FROM `linkedin_page.v_growth_trends`
+FROM `project-id.linkedin_page.v_growth_trends`
 WHERE organization_id = '5509810'
   AND stat_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
 GROUP BY week
@@ -241,7 +241,7 @@ SELECT
   ROUND(SAFE_DIVIDE(likes, total_engagements) * 100, 1) AS pct_likes,
   ROUND(SAFE_DIVIDE(comments, total_engagements) * 100, 1) AS pct_comments,
   ROUND(SAFE_DIVIDE(shares, total_engagements) * 100, 1) AS pct_shares
-FROM `linkedin_page.v_top_posts`
+FROM `project-id.linkedin_page.v_top_posts`
 WHERE total_engagements > 0
 ORDER BY total_engagements DESC
 LIMIT 20;

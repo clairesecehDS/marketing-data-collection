@@ -8,7 +8,7 @@
 -- =====================================================
 -- Table 1: Lead Forms
 -- =====================================================
-CREATE TABLE IF NOT EXISTS `linkedin_leadgen_form.lead_forms` (
+CREATE TABLE IF NOT EXISTS `project-id.linkedin_leadgen_form.lead_forms` (
   -- Identifiants
   form_id STRING NOT NULL,
   lead_form_urn STRING,
@@ -38,7 +38,7 @@ CLUSTER BY form_id, organization_id;
 -- =====================================================
 -- Table 2: Lead Form Responses
 -- =====================================================
-CREATE TABLE IF NOT EXISTS `linkedin_leadgen_form.lead_form_responses` (
+CREATE TABLE IF NOT EXISTS `project-id.linkedin_leadgen_form.lead_form_responses` (
   -- Identifiants
   lead_response_id STRING NOT NULL,
   form_id STRING NOT NULL,
@@ -83,7 +83,7 @@ CLUSTER BY form_id, campaign_id, submitted_at;
 -- =====================================================
 -- Table 3: Lead Form Metrics (Aggregated)
 -- =====================================================
-CREATE TABLE IF NOT EXISTS `linkedin_leadgen_form.lead_form_metrics` (
+CREATE TABLE IF NOT EXISTS `project-id.linkedin_leadgen_form.lead_form_metrics` (
   -- Identifiants
   form_id STRING NOT NULL,
   campaign_id STRING,
@@ -131,7 +131,7 @@ CLUSTER BY form_id, campaign_id, date;
 -- =====================================================
 
 -- View: Real-time Lead Quality Dashboard
-CREATE OR REPLACE VIEW `linkedin_leadgen_form.v_lead_quality_dashboard` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_leadgen_form.v_lead_quality_dashboard` AS
 WITH lead_stats AS (
   SELECT
     form_id,
@@ -152,7 +152,7 @@ WITH lead_stats AS (
     -- Timing
     AVG(TIMESTAMP_DIFF(notification_received_at, submitted_at, SECOND)) AS avg_notification_time,
     AVG(TIMESTAMP_DIFF(fetched_at, notification_received_at, SECOND)) AS avg_fetch_time
-  FROM `linkedin_leadgen_form.lead_form_responses`
+  FROM `project-id.linkedin_leadgen_form.lead_form_responses`
   WHERE submitted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
   GROUP BY form_id
 )
@@ -172,13 +172,13 @@ SELECT
   ) AS lead_quality_score,
   ROUND(ls.avg_notification_time, 2) AS avg_notification_time_seconds,
   ROUND(ls.avg_fetch_time, 2) AS avg_fetch_time_seconds
-FROM `linkedin_leadgen_form.lead_forms` lf
+FROM `project-id.linkedin_leadgen_form.lead_forms` lf
 LEFT JOIN lead_stats ls ON lf.form_id = ls.form_id
-WHERE DATE(lf.retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `linkedin_leadgen_form.lead_forms`)
+WHERE DATE(lf.retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `project-id.linkedin_leadgen_form.lead_forms`)
 ORDER BY ls.total_leads DESC;
 
 -- View: Lead Performance by Campaign
-CREATE OR REPLACE VIEW `linkedin_leadgen_form.v_lead_performance_by_campaign` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_leadgen_form.v_lead_performance_by_campaign` AS
 WITH campaign_stats AS (
   SELECT
     lfr.form_id,
@@ -187,7 +187,7 @@ WITH campaign_stats AS (
     COUNT(DISTINCT DATE(lfr.submitted_at)) AS active_days,
     MIN(lfr.submitted_at) AS first_lead,
     MAX(lfr.submitted_at) AS last_lead
-  FROM `linkedin_leadgen_form.lead_form_responses` lfr
+  FROM `project-id.linkedin_leadgen_form.lead_form_responses` lfr
   WHERE lfr.campaign_id IS NOT NULL
     AND lfr.submitted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
   GROUP BY lfr.form_id, lfr.campaign_id
@@ -198,7 +198,7 @@ campaign_analytics AS (
     SUM(impressions) AS impressions,
     SUM(clicks) AS clicks,
     SUM(cost_in_usd) AS ad_spend
-  FROM `linkedin_ads_advertising.campaign_analytics`
+  FROM `project-id.linkedin_ads_advertising.campaign_analytics`
   WHERE date_range_start >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
   GROUP BY campaign_id
 )
@@ -217,13 +217,13 @@ SELECT
   cs.first_lead,
   cs.last_lead
 FROM campaign_stats cs
-LEFT JOIN `linkedin_leadgen_form.lead_forms` lf ON cs.form_id = lf.form_id
+LEFT JOIN `project-id.linkedin_leadgen_form.lead_forms` lf ON cs.form_id = lf.form_id
 LEFT JOIN campaign_analytics ca ON cs.campaign_id = ca.campaign_id
-WHERE DATE(lf.retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `linkedin_leadgen_form.lead_forms`)
+WHERE DATE(lf.retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `project-id.linkedin_leadgen_form.lead_forms`)
 ORDER BY cs.total_leads DESC;
 
 -- View: SLA Monitoring
-CREATE OR REPLACE VIEW `linkedin_leadgen_form.v_lead_sla_monitoring` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_leadgen_form.v_lead_sla_monitoring` AS
 WITH sla_thresholds AS (
   SELECT
     300 AS notification_sla_seconds,  -- 5 minutes
@@ -244,18 +244,18 @@ SELECT
       THEN TRUE
     ELSE FALSE
   END AS sla_breached
-FROM `linkedin_leadgen_form.lead_form_responses`
+FROM `project-id.linkedin_leadgen_form.lead_form_responses`
 WHERE submitted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
 ORDER BY submitted_at DESC;
 
 -- View: Anomaly Detection (Volume Spikes/Drops)
-CREATE OR REPLACE VIEW `linkedin_leadgen_form.v_lead_volume_anomalies` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_leadgen_form.v_lead_volume_anomalies` AS
 WITH daily_volumes AS (
   SELECT
     form_id,
     DATE(submitted_at) AS date,
     COUNT(*) AS daily_leads
-  FROM `linkedin_leadgen_form.lead_form_responses`
+  FROM `project-id.linkedin_leadgen_form.lead_form_responses`
   WHERE submitted_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
   GROUP BY form_id, DATE(submitted_at)
 ),
@@ -288,8 +288,8 @@ SELECT
     ELSE 'NORMAL'
   END AS anomaly_type
 FROM rolling_avg ra
-LEFT JOIN `linkedin_leadgen_form.lead_forms` lf ON ra.form_id = lf.form_id
-WHERE DATE(lf.retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `linkedin_leadgen_form.lead_forms`)
+LEFT JOIN `project-id.linkedin_leadgen_form.lead_forms` lf ON ra.form_id = lf.form_id
+WHERE DATE(lf.retrieved_at) = (SELECT MAX(DATE(retrieved_at)) FROM `project-id.linkedin_leadgen_form.lead_forms`)
   AND ra.rolling_7day_avg IS NOT NULL
 ORDER BY ra.date DESC, ABS(SAFE_DIVIDE(ra.daily_leads - ra.rolling_7day_avg, ra.rolling_7day_avg)) DESC;
 
@@ -309,7 +309,7 @@ SELECT
   lead_quality_score,
   avg_notification_time_seconds,
   avg_fetch_time_seconds
-FROM `linkedin_leadgen_form.v_lead_quality_dashboard`
+FROM `project-id.linkedin_leadgen_form.v_lead_quality_dashboard`
 ORDER BY lead_quality_score DESC;
 */
 
@@ -326,7 +326,7 @@ SELECT
   cost_per_lead,
   ad_spend,
   ROUND(ad_spend / NULLIF(total_leads, 0), 2) AS actual_cpl
-FROM `linkedin_leadgen_form.v_lead_performance_by_campaign`
+FROM `project-id.linkedin_leadgen_form.v_lead_performance_by_campaign`
 WHERE total_leads > 0
 ORDER BY cost_per_lead ASC;
 */
@@ -340,7 +340,7 @@ SELECT
   ROUND(SAFE_DIVIDE(COUNTIF(sla_breached), COUNT(*)) * 100, 2) AS sla_breach_rate,
   AVG(notification_latency_seconds) AS avg_notification_latency,
   AVG(fetch_latency_seconds) AS avg_fetch_latency
-FROM `linkedin_leadgen_form.v_lead_sla_monitoring`
+FROM `project-id.linkedin_leadgen_form.v_lead_sla_monitoring`
 GROUP BY form_id
 ORDER BY sla_breach_rate DESC;
 */
@@ -354,7 +354,7 @@ SELECT
   rolling_7day_avg,
   pct_change,
   anomaly_type
-FROM `linkedin_leadgen_form.v_lead_volume_anomalies`
+FROM `project-id.linkedin_leadgen_form.v_lead_volume_anomalies`
 WHERE anomaly_detected = TRUE
   AND date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
 ORDER BY date DESC, ABS(pct_change) DESC;

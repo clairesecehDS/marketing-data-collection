@@ -5,7 +5,7 @@
 
 -- Table 1: Campaign Analytics
 -- Cette table stocke les métriques agrégées par campagne
-CREATE TABLE IF NOT EXISTS `linkedin_ads_advertising.campaign_analytics` (
+CREATE TABLE IF NOT EXISTS `project-id.linkedin_ads_advertising.campaign_analytics` (
   -- Identifiants
   campaign_id STRING NOT NULL OPTIONS(description="ID de la campagne LinkedIn"),
   campaign_urn STRING OPTIONS(description="URN complet de la campagne (ex: urn:li:sponsoredCampaign:123456)"),
@@ -60,7 +60,7 @@ OPTIONS(
 
 -- Table 2: Creative (Ads) Analytics
 -- Cette table stocke les métriques détaillées par creative/ad individuel
-CREATE TABLE IF NOT EXISTS `linkedin_ads_advertising.creative_analytics` (
+CREATE TABLE IF NOT EXISTS `project-id.linkedin_ads_advertising.creative_analytics` (
   -- Identifiants
   creative_id STRING NOT NULL OPTIONS(description="ID de la creative LinkedIn"),
   creative_urn STRING OPTIONS(description="URN complet de la creative (ex: urn:li:sponsoredCreative:123456)"),
@@ -143,7 +143,7 @@ OPTIONS(
 -- ============================================================================
 
 -- Vue 1: Dernières métriques de campagne
-CREATE OR REPLACE VIEW `linkedin_ads_advertising.v_latest_campaign_metrics` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_ads_advertising.v_latest_campaign_metrics` AS
 SELECT
   campaign_id,
   campaign_urn,
@@ -163,16 +163,16 @@ SELECT
   date_range_start,
   date_range_end,
   retrieved_at
-FROM `linkedin_ads_advertising.campaign_analytics`
+FROM `project-id.linkedin_ads_advertising.campaign_analytics`
 WHERE DATE(retrieved_at) = (
   SELECT MAX(DATE(retrieved_at))
-  FROM `linkedin_ads_advertising.campaign_analytics`
+  FROM `project-id.linkedin_ads_advertising.campaign_analytics`
 )
 ORDER BY cost_in_usd DESC;
 
 
 -- Vue 2: Top performing creatives par campagne
-CREATE OR REPLACE VIEW `linkedin_ads_advertising.v_top_creatives_by_campaign` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_ads_advertising.v_top_creatives_by_campaign` AS
 WITH ranked_creatives AS (
   SELECT
     campaign_id,
@@ -188,10 +188,10 @@ WITH ranked_creatives AS (
       PARTITION BY campaign_id
       ORDER BY engagement_rate DESC, ctr DESC
     ) as rank_in_campaign
-  FROM `linkedin_ads_advertising.creative_analytics`
+  FROM `project-id.linkedin_ads_advertising.creative_analytics`
   WHERE DATE(retrieved_at) = (
     SELECT MAX(DATE(retrieved_at))
-    FROM `linkedin_ads_advertising.creative_analytics`
+    FROM `project-id.linkedin_ads_advertising.creative_analytics`
   )
   AND impressions >= 100  -- Filtrer les creatives avec volume significatif
 )
@@ -201,7 +201,7 @@ WHERE rank_in_campaign <= 10;  -- Top 10 par campagne
 
 
 -- Vue 3: Performance globale (toutes campagnes agrégées)
-CREATE OR REPLACE VIEW `linkedin_ads_advertising.v_overall_performance` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_ads_advertising.v_overall_performance` AS
 SELECT
   DATE(retrieved_at) as report_date,
   COUNT(DISTINCT campaign_id) as num_campaigns,
@@ -215,14 +215,14 @@ SELECT
   SAFE_DIVIDE(SUM(total_engagements), SUM(impressions)) * 100 as overall_engagement_rate,
   SUM(one_click_leads) as total_leads,
   SUM(external_website_conversions) as total_conversions
-FROM `linkedin_ads_advertising.campaign_analytics`
+FROM `project-id.linkedin_ads_advertising.campaign_analytics`
 WHERE DATE(retrieved_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
 GROUP BY report_date
 ORDER BY report_date DESC;
 
 
 -- Vue 4: Comparaison campagne vs somme des creatives
-CREATE OR REPLACE VIEW `linkedin_ads_advertising.v_campaign_creative_reconciliation` AS
+CREATE OR REPLACE VIEW `project-id.linkedin_ads_advertising.v_campaign_creative_reconciliation` AS
 WITH campaign_totals AS (
   SELECT
     campaign_id,
@@ -230,10 +230,10 @@ WITH campaign_totals AS (
     SUM(clicks) as campaign_clicks,
     SUM(cost_in_usd) as campaign_cost,
     MAX(DATE(retrieved_at)) as campaign_date
-  FROM `linkedin_ads_advertising.campaign_analytics`
+  FROM `project-id.linkedin_ads_advertising.campaign_analytics`
   WHERE DATE(retrieved_at) = (
     SELECT MAX(DATE(retrieved_at))
-    FROM `linkedin_ads_advertising.campaign_analytics`
+    FROM `project-id.linkedin_ads_advertising.campaign_analytics`
   )
   GROUP BY campaign_id
 ),
@@ -245,10 +245,10 @@ creative_totals AS (
     SUM(clicks) as creative_clicks_sum,
     SUM(cost_in_usd) as creative_cost_sum,
     MAX(DATE(retrieved_at)) as creative_date
-  FROM `linkedin_ads_advertising.creative_analytics`
+  FROM `project-id.linkedin_ads_advertising.creative_analytics`
   WHERE DATE(retrieved_at) = (
     SELECT MAX(DATE(retrieved_at))
-    FROM `linkedin_ads_advertising.creative_analytics`
+    FROM `project-id.linkedin_ads_advertising.creative_analytics`
   )
   GROUP BY campaign_id
 )
@@ -286,7 +286,7 @@ SELECT
   AVG(ctr) as avg_ctr,
   AVG(engagement_rate) as avg_engagement_rate,
   SUM(one_click_leads) as total_leads
-FROM `linkedin_ads_advertising.campaign_analytics`
+FROM `project-id.linkedin_ads_advertising.campaign_analytics`
 WHERE DATE(retrieved_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
 GROUP BY campaign_id
 ORDER BY total_cost DESC
@@ -302,7 +302,7 @@ SELECT
   ctr,
   cost_in_usd,
   engagement_rate
-FROM `linkedin_ads_advertising.campaign_analytics`
+FROM `project-id.linkedin_ads_advertising.campaign_analytics`
 WHERE campaign_id = '129098506'  -- Remplacer par votre campaign_id
   AND DATE(retrieved_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
 ORDER BY date DESC;
@@ -319,10 +319,10 @@ SELECT
   engagement_rate,
   cost_in_usd,
   SAFE_DIVIDE(cost_in_usd, NULLIF(one_click_leads, 0)) as cost_per_lead
-FROM `linkedin_ads_advertising.creative_analytics`
+FROM `project-id.linkedin_ads_advertising.creative_analytics`
 WHERE DATE(retrieved_at) = (
   SELECT MAX(DATE(retrieved_at))
-  FROM `linkedin_ads_advertising.creative_analytics`
+  FROM `project-id.linkedin_ads_advertising.creative_analytics`
 )
 AND impressions >= 1000  -- Minimum pour significativité statistique
 ORDER BY engagement_rate DESC, ctr DESC
@@ -340,10 +340,10 @@ SELECT
   external_website_conversions,
   SAFE_DIVIDE(cost_in_usd, NULLIF(external_website_conversions, 0)) as cost_per_conversion,
   SAFE_DIVIDE(external_website_conversions, NULLIF(clicks, 0)) * 100 as conversion_rate
-FROM `linkedin_ads_advertising.creative_analytics`
+FROM `project-id.linkedin_ads_advertising.creative_analytics`
 WHERE DATE(retrieved_at) = (
   SELECT MAX(DATE(retrieved_at))
-  FROM `linkedin_ads_advertising.creative_analytics`
+  FROM `project-id.linkedin_ads_advertising.creative_analytics`
 )
 AND external_website_conversions > 0
 ORDER BY cost_per_conversion ASC
@@ -359,7 +359,7 @@ SELECT
   SAFE_DIVIDE(SUM(video_completions), NULLIF(SUM(video_starts), 0)) * 100 as completion_rate,
   SUM(cost_in_usd) as total_cost,
   SAFE_DIVIDE(SUM(cost_in_usd), NULLIF(SUM(video_completions), 0)) as cost_per_completion
-FROM `linkedin_ads_advertising.campaign_analytics`
+FROM `project-id.linkedin_ads_advertising.campaign_analytics`
 WHERE DATE(retrieved_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
   AND video_starts > 0
 GROUP BY campaign_id
@@ -373,12 +373,12 @@ ORDER BY completion_rate DESC;
 
 -- Pour configurer une rétention automatique des données (ex: garder 2 ans):
 /*
-ALTER TABLE `linkedin_ads_advertising.campaign_analytics`
+ALTER TABLE `project-id.linkedin_ads_advertising.campaign_analytics`
 SET OPTIONS (
   partition_expiration_days = 730  -- 2 ans
 );
 
-ALTER TABLE `linkedin_ads_advertising.creative_analytics`
+ALTER TABLE `project-id.linkedin_ads_advertising.creative_analytics`
 SET OPTIONS (
   partition_expiration_days = 730  -- 2 ans
 );

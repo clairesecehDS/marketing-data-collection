@@ -1,7 +1,7 @@
 -- Schéma BigQuery pour la table ads_library
 -- Exécutez cette commande pour créer la table dans BigQuery
 
-CREATE TABLE `clean-avatar-466709-a0.linkedin_ads_library.ads_library` (
+CREATE TABLE `project-id.linkedin_ads_library.ads_library` (
   Keyword STRING,
   Countries STRING,
   Advertiser STRING,
