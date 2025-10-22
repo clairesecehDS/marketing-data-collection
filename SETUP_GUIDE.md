@@ -125,7 +125,7 @@ git --version
 
 ```bash
 # Cloner le repository
-git clone [URL_DU_REPO_GITHUB]
+git clone https://github.com/clairesecehDS/marketing-data-collection.git
 
 # Se déplacer dans le dossier
 cd marketing-data-collection
@@ -161,8 +161,6 @@ nano config.yaml  # ou vim, code, etc.
 - Paramètres BigQuery
 - Planification de l'automatisation
 
-📸 **TODO: Screenshot du fichier config.yaml ouvert dans un éditeur**
-
 Voir section [Configuration détaillée](#-configuration-détaillée) pour remplir chaque partie.
 
 ---
@@ -176,33 +174,54 @@ source venv/bin/activate  # Linux/Mac
 # ou
 venv\Scripts\activate  # Windows
 
-# Installer les dépendances
-pip install requests pandas pandas-gbq google-auth google-cloud-bigquery "numpy<2.0.0"
+# Mettre à jour pip
+pip install --upgrade pip
+
+# Installer toutes les dépendances depuis requirements.txt
+pip install -r requirements.txt
 ```
+
+**Dépendances installées :**
+
+- `requests` - Requêtes HTTP vers les APIs
+- `pandas` - Manipulation de données
+- `numpy<2.0.0` - Calculs numériques (version <2.0 requise)
+- `google-auth` - Authentification Google Cloud
+- `google-cloud-bigquery` - Client BigQuery
+- `pandas-gbq` - Intégration pandas-BigQuery
+- `pyyaml` - Lecture fichiers YAML (config)
 
 ---
 
-### Étape 3 : Vérifier l'installation
+### Étape 4 : Vérifier l'installation
 
 ```bash
 # Vérifier que les modules sont installés
-python -c "import requests, pandas, pandas_gbq, google.auth; print('✓ Toutes les dépendances sont installées')"
+python -c "import requests, pandas, pandas_gbq, google.auth, yaml; print('✓ Toutes les dépendances sont installées')"
 ```
 
 ---
 
 ## 🔧 Configuration Google Cloud & BigQuery
 
-### Étape 1 : Créer un projet Google Cloud
+### Étape 1 : Créer ou sélectionner un projet Google Cloud
 
 1. Aller sur [Google Cloud Console](https://console.cloud.google.com/)
-2. Cliquer sur le sélecteur de projet en haut
-3. Cliquer sur **"Nouveau projet"**
-4. Renseigner :
-   - **Nom du projet** : `deepscouting-marketing` (ou autre)
-   - **Organisation** : Sélectionner si applicable
-5. Cliquer sur **"Créer"**
-6. **Noter le Project ID** (ex: `clean-avatar-466709-a0`)
+2. Cliquer sur le **sélecteur de projet** en haut (à côté du logo Google Cloud)
+
+**Option A : Utiliser un projet existant**
+- Sélectionner votre projet existant dans la liste
+- **Noter le Project ID** (visible sous le nom du projet)
+- Passer à l'Étape 2
+
+**Option B : Créer un nouveau projet**
+1. Cliquer sur **"Nouveau projet"**
+2. Renseigner :
+   - **Nom du projet** : `deepscouting-marketing` (ou autre nom descriptif)
+   - **Organisation** : Sélectionner si applicable (optionnel)
+3. Cliquer sur **"Créer"**
+4. **Noter le Project ID** (ex: `clean-avatar-466709-a0`)
+   - ⚠️ Le Project ID est différent du nom ! Notez bien l'ID qui est généré.
 
 ---
 
@@ -263,63 +282,92 @@ Un Service Account permet aux scripts d'accéder à BigQuery de manière sécuri
 
 ### Étape 5 : Créer les datasets BigQuery
 
-1. Menu latéral → **"BigQuery"** → **"SQL Workspace"**
-2. Cliquer sur votre projet
-3. Cliquer sur les trois points → **"Create dataset"**
+1. Menu latéral → **"BigQuery"** → **"Studio"** (ou "SQL Workspace" dans les anciennes versions)
+2. Dans l'explorateur à gauche, cliquer sur votre projet
+3. Cliquer sur les **trois points** (⋮) à côté du nom du projet → **"Create dataset"**
 
-**Créer 3 datasets :**
+**Créer 6 datasets :**
 
-#### Dataset 1 : LinkedIn
-- **Dataset ID** : `linkedin`
-- **Data location** : `EU` (ou US selon votre région)
-- **Default table expiration** : Never
-- Cliquer sur **"Create dataset"**
+#### Datasets LinkedIn (4 datasets)
 
-#### Dataset 2 : Microsoft Clarity
+**Dataset 1 : LinkedIn Ads Advertising**
+- **Dataset ID** : `linkedin_ads_advertising`
+- **Data location** : `europe-west9` (Paris) ou autre selon votre région
+
+**Dataset 2 : LinkedIn Ads Library**
+- **Dataset ID** : `linkedin_ads_library`
+- **Data location** : `europe-west9` (Paris) ou autre selon votre région
+
+**Dataset 3 : LinkedIn Lead Gen Forms**
+- **Dataset ID** : `linkedin_leadgen_form`
+- **Data location** : `europe-west9` (Paris) ou autre selon votre région
+
+**Dataset 4 : LinkedIn Page Statistics**
+- **Dataset ID** : `linkedin_page`
+- **Data location** : `europe-west9` (Paris) ou autre selon votre région
+
+#### Dataset 5 : Microsoft Clarity
 - **Dataset ID** : `microsoft_clarity`
-- **Data location** : `EU`
-- **Default table expiration** : Never
+- **Data location** : `europe-west9` (Paris) ou autre selon votre région
 
-#### Dataset 3 : SpyFu
+#### Dataset 6 : SpyFu
 - **Dataset ID** : `spyfu`
-- **Data location** : `EU`
-- **Default table expiration** : Never
+- **Data location** : `europe-west9` (Paris) ou autre selon votre région
 
 ---
 
 ### Étape 6 : Créer les tables et vues
 
-Pour chaque source, exécuter les fichiers SQL :
+Les fichiers SQL contiennent des Project IDs hardcodés. Le script `setup_bigquery.py` les remplace automatiquement par votre Project ID depuis `config.yaml`.
 
-#### Via bq CLI (recommandé)
+#### Option A : Script automatique (recommandé) ✨
 
 ```bash
-# Installer gcloud CLI si nécessaire
-# https://cloud.google.com/sdk/docs/install
-
-# Authentification
-gcloud auth login
-gcloud config set project VOTRE_PROJECT_ID
-
-# Créer les tables LinkedIn
-bq query --use_legacy_sql=false < linkedin/sql/bigquery_campaign_creative_schema.sql
-bq query --use_legacy_sql=false < linkedin/sql/bigquery_campaign_creative_budget_schema.sql
-bq query --use_legacy_sql=false < linkedin/sql/bigquery_lead_forms_schema.sql
-
-# Créer la table Clarity
-bq query --use_legacy_sql=false < microsoft_clarity/sql/bigquery_clarity_schema.sql
-
-# Créer les tables SpyFu
-bq query --use_legacy_sql=false < spyfu/sql/bigquery_spyfu_schema.sql
+# Exécuter le script de setup
+python setup_bigquery.py
 ```
 
-#### Via Console BigQuery
+Le script va :
+1. ✅ Lire votre Project ID depuis `config.yaml`
+2. ✅ Générer les fichiers SQL avec le bon Project ID dans `generated_sql/`
+3. ✅ Vous proposer d'exécuter automatiquement via `bq` CLI ou manuellement
 
-1. Aller dans BigQuery SQL Workspace
-2. Cliquer sur **"Compose new query"**
-3. Copier-coller le contenu d'un fichier SQL
-4. Cliquer sur **"Run"**
-5. Répéter pour chaque fichier SQL
+**Fichiers SQL traités (7 fichiers) :**
+- `linkedin/sql/bigquery_campaign_creative_schema.sql`
+- `linkedin/sql/bigquery_campaign_creative_budget_schema.sql`
+- `linkedin/sql/bigquery_lead_forms_schema.sql`
+- `linkedin/sql/bigquery_linkedin_page_schema.sql`
+- `linkedin/sql/bigquery_ads_library_schema.sql`
+- `microsoft_clarity/sql/bigquery_clarity_schema.sql`
+- `spyfu/sql/bigquery_spyfu_schema.sql`
+
+---
+
+#### Option B : Exécution manuelle
+
+Si vous préférez exécuter manuellement :
+
+**Via bq CLI :**
+
+```bash
+# 1. Générer les fichiers SQL
+python setup_bigquery.py
+# Choisir option [2] pour affichage manuel
+
+# 2. Exécuter les commandes affichées
+```
+
+**Via Console BigQuery Studio :**
+
+1. Exécuter `python setup_bigquery.py` et choisir option [2]
+2. Aller sur https://console.cloud.google.com/bigquery
+3. Cliquer sur **"Studio"** → **"+"** (nouvelle requête)
+4. Pour chaque fichier dans `generated_sql/` :
+   - Copier le contenu du fichier
+   - Coller dans l'éditeur
+   - Cliquer sur **"Run"**
+
+⚠️ **Important :** Les fichiers dans `generated_sql/` utilisent votre Project ID. N'utilisez PAS directement les fichiers SQL originaux qui contiennent des IDs hardcodés !
 
 ---
 
@@ -497,9 +545,12 @@ Après configuration, vous aurez ces datasets dans BigQuery :
 
 ```
 votre-project-id
-├── linkedin                    # Scripts Python (ce projet)
-├── microsoft_clarity           # Scripts Python (ce projet)
-├── spyfu                       # Scripts Python (ce projet)
+├── linkedin_ads_advertising    # Scripts Python (campagnes, budgets, creatives)
+├── linkedin_ads_library        # Scripts Python (surveillance concurrence)
+├── linkedin_leadgen_form       # Scripts Python (formulaires leads)
+├── linkedin_page               # Scripts Python (statistiques page)
+├── microsoft_clarity           # Scripts Python (comportement utilisateur)
+├── spyfu                       # Scripts Python (SEO/PPC concurrentiel)
 ├── google_search_console       # 🔗 Connexion native GSC
 ├── analytics_XXXXXXXXX         # 🔗 Connexion native GA4
 └── google_ads                  # 🔗 Connexion native Google Ads
@@ -535,7 +586,7 @@ SELECT
   SUM(l.impressions) as impressions,
   SUM(l.clicks) as clicks,
   SUM(l.costInUsd) as cost
-FROM `votre-project-id.linkedin.campaign_analytics` l
+FROM `votre-project-id.linkedin_ads_advertising.campaign_analytics` l
 WHERE DATE(l.date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
 GROUP BY date, source
 
