@@ -61,9 +61,17 @@ class ConfigLoader:
 
     def get_google_cloud_config(self) -> Dict[str, Any]:
         """Récupère la configuration Google Cloud"""
+        credentials_file = self.get('google_cloud.credentials_file')
+        
+        # Convertir le chemin relatif en chemin absolu par rapport au fichier config.yaml
+        if credentials_file and not os.path.isabs(credentials_file):
+            # Si le chemin est relatif, le résoudre par rapport au répertoire du config.yaml
+            config_dir = self.config_path.parent
+            credentials_file = str(config_dir / credentials_file)
+        
         return {
             'project_id': self.get('google_cloud.project_id'),
-            'credentials_file': self.get('google_cloud.credentials_file'),
+            'credentials_file': credentials_file,
             'location': self.get('google_cloud.location', 'EU'),
             'datasets': {
                 'linkedin': self.get('google_cloud.datasets.linkedin'),
@@ -175,8 +183,11 @@ class ConfigLoader:
         if not self.get('google_cloud.project_id'):
             errors.append("❌ google_cloud.project_id manquant")
 
-        if not os.path.exists(self.get('google_cloud.credentials_file', '')):
-            errors.append(f"❌ Fichier credentials non trouvé : {self.get('google_cloud.credentials_file')}")
+        # Vérifier le fichier credentials avec chemin absolu
+        google_config = self.get_google_cloud_config()
+        credentials_file = google_config.get('credentials_file')
+        if credentials_file and not os.path.exists(credentials_file):
+            errors.append(f"❌ Fichier credentials non trouvé : {credentials_file}")
 
         # Vérifier LinkedIn
         if not self.get('linkedin.oauth.client_id'):

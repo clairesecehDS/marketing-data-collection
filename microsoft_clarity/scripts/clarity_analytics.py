@@ -193,7 +193,9 @@ class ClarityAnalyticsClient:
 def main():
     # Charger la configuration
     print("📋 Chargement de la configuration...")
-    config = load_config()
+    # Chemin absolu vers le fichier de configuration à la racine du projet
+    config_path = os.path.join(os.path.dirname(__file__), '../../config.yaml')
+    config = load_config(config_path)
 
     # Récupérer les configurations
     clarity_config = config.get_clarity_config()
