@@ -334,6 +334,8 @@ Le script va :
 
 Pour l'exécution automatique, il faudra au préalable vous **authentifier** avec `gcloud auth login` puis sélectionner le projet avec `gcloud config set project votre-project-id`.
 
+Pour l'exécution automatique, il faudra au préalable vous **authentifier** avec `gcloud auth login` puis sélectionner le projet avec `gcloud config set project votre-project-id`.
+
 **Fichiers SQL traités (7 fichiers) :**
 - `linkedin/sql/bigquery_campaign_creative_schema.sql`
 - `linkedin/sql/bigquery_campaign_creative_budget_schema.sql`
@@ -517,12 +519,15 @@ LinkedIn utilise OAuth 2.0 avec un **Refresh Token** qui ne change pas et permet
 
 ⚠️ **Important :** Tous les credentials collectés dans cette section devront être renseignés dans le fichier `config.yaml` (voir Étape 6). Les scripts lisent automatiquement leurs configurations depuis ce fichier centralisé.
 
+⚠️ **Important :** Tous les credentials collectés dans cette section devront être renseignés dans le fichier `config.yaml` (voir Étape 6). Les scripts lisent automatiquement leurs configurations depuis ce fichier centralisé.
+
 **Flux OAuth :**
 ```
 1. Créer une App LinkedIn
 2. Obtenir Client ID + Client Secret
 3. Générer un Authorization Code (via navigateur)
 4. Échanger le code contre un Refresh Token
+5. Renseigner tous les credentials dans config.yaml
 5. Renseigner tous les credentials dans config.yaml
    → Les scripts génèrent automatiquement les Access Tokens
 ```
@@ -597,6 +602,126 @@ LinkedIn utilise OAuth 2.0 avec un **Refresh Token** qui ne change pas et permet
 
 ---
 
+### Étape 5 : Configurer config.yaml avec Client ID et Client Secret
+
+⚠️ **Important :** Avant de générer le Refresh Token, vous devez d'abord renseigner le Client ID et le Client Secret dans `config.yaml`.
+
+1. **Ouvrir** `config.yaml` (ou créer depuis `config.example.yaml`)
+
+   ```bash
+   cd /home/cseceh/Deep_Scouting/admin/Projet_Ads/code
+   nano config.yaml
+   ```
+
+2. **Remplir la section LinkedIn OAuth** avec les informations de l'Étape 3 :
+
+   ```yaml
+   linkedin:
+     oauth:
+       client_id: "78xxxxxxxxxxxxxxxx"      # Client ID de l'Étape 3
+       client_secret: "WPxxxxxxxxxxxxxxxx"  # Client Secret de l'Étape 3
+       refresh_token: ""                    # Sera rempli après l'Étape 6
+       redirect_uri: "http://localhost:8080/callback"  # Doit correspondre à l'Étape 3
+       scopes:  # Scopes par défaut (peut être modifié si nécessaire)
+         - "r_ads"
+         - "rw_ads"
+         - "r_ads_reporting"
+         - "r_ads_leadgen_automation"
+   
+     account_id: "503061133"  # Ad Account ID de l'Étape 4
+   
+     collection:
+       start_date: "2024-01-01"
+       end_date: null  # null = aujourd'hui
+       granularity: "DAILY"
+       api_version: "202509"
+   
+     analytics:
+       pivots:
+         - "CAMPAIGN"
+         - "CREATIVE"
+   ```
+
+3. **Sauvegarder** le fichier
+
+4. **Sécuriser** le fichier
+
+   ```bash
+   chmod 600 config.yaml
+   ```
+
+⚠️ **Laissez `refresh_token` vide pour le moment** - Il sera généré à l'étape suivante.
+
+---
+
+### Étape 6 : Générer le Refresh Token
+
+Le Refresh Token est un token permanent qui permet aux scripts de générer automatiquement des Access Tokens.
+
+⚠️ **Prérequis :** Le fichier `config.yaml` doit être configuré avec `client_id` et `client_secret` (Étape 5).
+
+**Processus :**
+
+1. **Exécuter le script de génération de token**
+
+   Le script `token_linkedin.py` lit automatiquement les credentials depuis `config.yaml` :
+
+   ```bash
+   cd linkedin/scripts
+   python token_linkedin.py
+   ```
+
+2. **Autoriser dans le navigateur**
+   - Une page LinkedIn s'ouvre automatiquement
+   - Se connecter avec votre compte LinkedIn
+   - Cliquer sur **"Autoriser"** pour donner les permissions
+
+3. **Le script récupère automatiquement le code**
+   - Si `redirect_uri` est `localhost` : le code est capturé automatiquement
+   - Sinon : copier le code depuis l'URL de redirection
+
+4. **Le Refresh Token est affiché dans le terminal**
+
+   ```
+   ╔════════════════════════════════════════════════════════════════════╗
+   ║               ✓ ACCESS TOKEN GÉNÉRÉ AVEC SUCCÈS!                  ║
+   ╔════════════════════════════════════════════════════════════════════╝
+   
+   Access Token:
+   AQV...xxxxxxxxxxxxxxxxxx...
+   
+   Refresh Token:
+   AQV...yyyyyyyyyyyyyyyyyy...
+   ```
+
+5. **Copier le Refresh Token affiché** (la longue chaîne commençant par `AQV`)
+
+---
+
+### Étape 7 : Ajouter le Refresh Token dans config.yaml
+
+1. **Rouvrir** `config.yaml`
+
+   ```bash
+   nano config.yaml
+   ```
+
+2. **Ajouter le Refresh Token** dans la section LinkedIn OAuth :
+
+   ```yaml
+   linkedin:
+     oauth:
+       client_id: "78xxxxxxxxxxxxxxxx"
+       client_secret: "WPxxxxxxxxxxxxxxxx"
+       refresh_token: "AQVxxxxxxxxxxxxxxxx"  # ← COLLER LE REFRESH TOKEN ICI
+       redirect_uri: "http://localhost:8080/callback"
+   ```
+
+3. **Sauvegarder** le fichier
+
+✅ **Configuration terminée !** Les scripts LinkedIn liront automatiquement tous les credentials depuis `config.yaml`.
+
+**Voir aussi :** Documentation complète dans [linkedin/README.md](linkedin/README.md) section "Configuration OAuth".
 ### Étape 5 : Configurer config.yaml avec Client ID et Client Secret
 
 ⚠️ **Important :** Avant de générer le Refresh Token, vous devez d'abord renseigner le Client ID et le Client Secret dans `config.yaml`.
@@ -810,6 +935,9 @@ Le repository contient déjà un `.gitignore` qui protège automatiquement :
 # Fichiers de configuration sensibles
 config.yaml              # ⚠️ Contient tous les credentials (LinkedIn, Clarity, SpyFu)
 account-key.json         # Service Account Google Cloud
+# Fichiers de configuration sensibles
+config.yaml              # ⚠️ Contient tous les credentials (LinkedIn, Clarity, SpyFu)
+account-key.json         # Service Account Google Cloud
 
 # Tokens
 *_token.txt
@@ -829,6 +957,10 @@ venv/
 # Logs
 *.log
 ```
+
+⚠️ **Fichiers à ne JAMAIS commiter :**
+- `config.yaml` - Contient tous vos credentials (LinkedIn OAuth, API keys, etc.)
+- `account-key.json` - Clé du Service Account Google Cloud
 
 ⚠️ **Fichiers à ne JAMAIS commiter :**
 - `config.yaml` - Contient tous vos credentials (LinkedIn OAuth, API keys, etc.)
@@ -917,6 +1049,8 @@ google_cloud:
 ```
 
 #### 2. LinkedIn
+
+⚠️ **Important :** Les credentials OAuth LinkedIn (Client ID, Client Secret, Refresh Token) doivent être renseignés dans ce fichier `config.yaml`. Les scripts lisent automatiquement ces informations depuis ce fichier.
 
 ⚠️ **Important :** Les credentials OAuth LinkedIn (Client ID, Client Secret, Refresh Token) doivent être renseignés dans ce fichier `config.yaml`. Les scripts lisent automatiquement ces informations depuis ce fichier.
 
@@ -1220,11 +1354,22 @@ Attendre et espacer les requêtes.
 - [ ] Fichier `config.yaml` créé depuis `config.example.yaml`
 - [ ] Dépendances Python installées (`requirements.txt`)
 
+### Configuration initiale
+
+- [ ] Repository cloné depuis GitHub
+- [ ] Fichier `config.yaml` créé depuis `config.example.yaml`
+- [ ] Dépendances Python installées (`requirements.txt`)
+
 ### Google Cloud
 
 - [ ] Projet GCP créé
 - [ ] BigQuery API activée
 - [ ] Service Account créé avec permissions
+- [ ] Clé JSON téléchargée et renommée `account-key.json`
+- [ ] `account-key.json` sécurisé (chmod 600)
+- [ ] Project ID ajouté dans `config.yaml`
+- [ ] 6 datasets créés (linkedin x4, clarity, spyfu)
+- [ ] Tables créées depuis SQL (via `setup_bigquery.py`)
 - [ ] Clé JSON téléchargée et renommée `account-key.json`
 - [ ] `account-key.json` sécurisé (chmod 600)
 - [ ] Project ID ajouté dans `config.yaml`
@@ -1241,6 +1386,12 @@ Attendre et espacer les requêtes.
 - [ ] **Client ID et Client Secret ajoutés dans `config.yaml`** (Étape 5)
 - [ ] Refresh Token généré via `token_linkedin.py` (Étape 6)
 - [ ] **Refresh Token ajouté dans `config.yaml`** (Étape 7)
+- [ ] Client ID et Client Secret récupérés (Étape 3)
+- [ ] Redirect URL configuré : `http://localhost:8080/callback` (Étape 3)
+- [ ] Ad Account ID récupéré (Étape 4)
+- [ ] **Client ID et Client Secret ajoutés dans `config.yaml`** (Étape 5)
+- [ ] Refresh Token généré via `token_linkedin.py` (Étape 6)
+- [ ] **Refresh Token ajouté dans `config.yaml`** (Étape 7)
 
 ### Clarity
 
@@ -1249,9 +1400,17 @@ Attendre et espacer les requêtes.
 - [ ] Project ID récupéré
 - [ ] API Key (JWT) récupérée
 - [ ] **Credentials ajoutés dans `config.yaml`** (project_id, api_key)
+- [ ] Tracking code installé sur le site
+- [ ] Project ID récupéré
+- [ ] API Key (JWT) récupérée
+- [ ] **Credentials ajoutés dans `config.yaml`** (project_id, api_key)
 
 ### SpyFu
 
+- [ ] API Secret Key récupérée depuis compte SpyFu
+- [ ] Domaines à surveiller définis
+- [ ] Concurrents identifiés
+- [ ] **Credentials et domaines ajoutés dans `config.yaml`** (api_key, domains, competitors)
 - [ ] API Secret Key récupérée depuis compte SpyFu
 - [ ] Domaines à surveiller définis
 - [ ] Concurrents identifiés
