@@ -41,9 +41,10 @@ google_cloud:
 linkedin:
   # OAuth 2.0 Credentials
   oauth:
+    access_token: "VOTRE_ACCESS_TOKEN"  # Token d'accès (durée: 60 jours) - REQUIS
     client_id: "VOTRE_CLIENT_ID"
     client_secret: "VOTRE_CLIENT_SECRET"
-    refresh_token: "VOTRE_REFRESH_TOKEN"
+    refresh_token: "VOTRE_REFRESH_TOKEN"  # Optionnel: pour renouveler automatiquement
 
     # Redirect URI pour le flow OAuth (génération de tokens)
     # Option 1 : Outil officiel LinkedIn (recommandé pour première fois)
@@ -71,6 +72,9 @@ linkedin:
 
   # Ad Account
   account_id: "503061133"  # Votre Ad Account ID
+  
+  # Organization (pour les statistiques de page et lead forms)
+  organization_id: "5509810"  # Votre Organization ID LinkedIn
 
   # Configuration de collecte
   collection:
@@ -152,6 +156,39 @@ linkedin:
       - phone
       - country
       - custom_fields
+
+  # Ads Library - Configuration de recherche
+  ads_library:
+    # Mots-clés à rechercher dans les publicités
+    # Note: Vous pouvez laisser vide [] si vous ne voulez chercher que par annonceurs
+    keywords:
+      - "marketing"
+      - "digital"
+      - "AI"
+      - "intelligence artificielle"
+      - "data"
+
+    # Annonceurs spécifiques à surveiller (noms exacts)
+    # Note: Vous pouvez laisser vide [] si vous ne voulez chercher que par mots-clés
+    # IMPORTANT: Au moins keywords OU advertisers doit être rempli
+    advertisers:
+      - "Concurrent1"
+      - "Concurrent2"
+      # Ajoutez vos concurrents ici
+
+    # Pays à cibler (codes ISO à 2 lettres)
+    countries:
+      - "fr"  # France
+      - "us"  # États-Unis
+      # - "gb"  # Royaume-Uni
+      # - "de"  # Allemagne
+
+    # Maximum de résultats par recherche (limite API)
+    max_results_per_search: 500
+
+    # Délai entre les requêtes API (en secondes)
+    # Recommandé: 2.0 secondes pour éviter les erreurs 429 (rate limit)
+    request_delay: 2.0
 
 
 # ============================================================

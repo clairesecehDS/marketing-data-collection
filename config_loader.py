@@ -20,7 +20,21 @@ class ConfigLoader:
         Args:
             config_path: Chemin vers le fichier config.yaml
         """
-        self.config_path = Path(config_path)
+        # Si le chemin est relatif, chercher à partir de la racine du projet
+        config_path_obj = Path(config_path)
+        
+        if not config_path_obj.is_absolute():
+            # Remonter jusqu'à trouver config.yaml à la racine du projet
+            current_dir = Path(__file__).parent
+            
+            # Chercher config.yaml dans le répertoire courant et les parents
+            for parent in [current_dir] + list(current_dir.parents):
+                potential_config = parent / config_path
+                if potential_config.exists():
+                    config_path_obj = potential_config
+                    break
+        
+        self.config_path = config_path_obj
         self.config = None
         self._load_config()
 
@@ -74,25 +88,41 @@ class ConfigLoader:
             'credentials_file': credentials_file,
             'location': self.get('google_cloud.location', 'EU'),
             'datasets': {
-                'linkedin': self.get('google_cloud.datasets.linkedin'),
-                'clarity': self.get('google_cloud.datasets.clarity'),
+                # LinkedIn datasets (4 datasets selon SETUP_GUIDE.md)
+                'linkedin_ads_advertising': self.get('google_cloud.datasets.linkedin_ads'),
+                'linkedin_ads_library': self.get('google_cloud.datasets.linkedin_library'),
+                'linkedin_leadgen_form': self.get('google_cloud.datasets.linkedin_leadgen'),
+                'linkedin_page': self.get('google_cloud.datasets.linkedin_page'),
+                # Autres datasets
+                'microsoft_clarity': self.get('google_cloud.datasets.clarity'),
                 'spyfu': self.get('google_cloud.datasets.spyfu'),
+                # Alias pour compatibilité
+                'linkedin': self.get('google_cloud.datasets.linkedin_ads'),
             }
         }
 
     def get_linkedin_config(self) -> Dict[str, Any]:
         """Récupère la configuration LinkedIn"""
         return {
+            'access_token': self.get('linkedin.oauth.access_token'),
             'client_id': self.get('linkedin.oauth.client_id'),
             'client_secret': self.get('linkedin.oauth.client_secret'),
             'refresh_token': self.get('linkedin.oauth.refresh_token'),
             'account_id': self.get('linkedin.account_id'),
+            'organization_id': self.get('linkedin.organization_id'),
             'start_date': self.get('linkedin.collection.start_date'),
             'end_date': self.get('linkedin.collection.end_date'),
             'granularity': self.get('linkedin.collection.granularity', 'DAILY'),
             'api_version': self.get('linkedin.collection.api_version', '202509'),
             'pivots': self.get('linkedin.analytics.pivots', ['CAMPAIGN', 'CREATIVE']),
             'metrics': self.get('linkedin.metrics', {}),
+            'oauth': self.get('linkedin.oauth', {}),
+            'ads_library': {
+                'keywords': self.get('linkedin.ads_library.keywords', []),
+                'advertisers': self.get('linkedin.ads_library.advertisers', []),
+                'countries': self.get('linkedin.ads_library.countries', ['FR']),
+                'max_results_per_search': self.get('linkedin.ads_library.max_results_per_search', 500),
+            },
         }
 
     def get_clarity_config(self) -> Dict[str, Any]:

@@ -419,9 +419,13 @@ def main():
     linkedin_config = config.get_linkedin_config()
     google_config = config.get_google_cloud_config()
 
-    # Note: Le token LinkedIn doit être rafraîchi régulièrement (voir token_linkedin.py)
-    # Pour une utilisation en production, générer un nouveau token avant chaque exécution
-    ACCESS_TOKEN = linkedin_config['refresh_token']  # À remplacer par un access token valide
+    # Récupérer l'access token depuis la configuration
+    ACCESS_TOKEN = linkedin_config.get('access_token')
+    if not ACCESS_TOKEN:
+        print("❌ ERREUR: access_token LinkedIn non configuré dans config.yaml")
+        print("   Veuillez ajouter 'access_token' dans la section linkedin.oauth")
+        return
+    
     ACCOUNT_ID = linkedin_config['account_id']
 
     # Configuration BigQuery

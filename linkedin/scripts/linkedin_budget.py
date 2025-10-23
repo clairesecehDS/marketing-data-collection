@@ -369,15 +369,32 @@ def main():
     """
     Exemple d'utilisation du client LinkedIn Budget
     """
+    
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+    from config_loader import load_config
 
-    # Configuration
-    ACCESS_TOKEN = "AQWzcqB3Ax4ZPIIcaTW5fDylKuVXIgnb3HbO_oCRGsLbfgGfc5LyAs5BdhuwUv7yWD0AKm_HYYphQi0Aec5epLuISR1QcykiyC4UX3PKi4kpYN6AKfNlZ0U4gBCctsRknr_uSHt8u2LYySydWhThF-k3O6HtzQKCi072WB-TkxaaAbMBSgLfIGcbBVhEkAXAFnZTr5lUUqmmJvvcuUuImZfqWVK4tX-1cHHSkpenmNmq_43m0QZqQ_1IRpmdfzJYKE11PKHUgkQUacrYEAGsDJXe1ClHiw9UegDFvsBQ-JIFE0VWeI5yl7D5uE3SxQrUjbrpOQOzVVQvdGsZ3j0bJi-6zddakw"
-    ACCOUNT_ID = "503061133"  # École des Ponts Business School_1
+    # Charger la configuration
+    print("📋 Chargement de la configuration...")
+    config = load_config()
+
+    # Récupérer les configurations
+    linkedin_config = config.get_linkedin_config()
+    google_config = config.get_google_cloud_config()
+
+    # Récupérer l'access token depuis la configuration
+    ACCESS_TOKEN = linkedin_config.get('access_token')
+    if not ACCESS_TOKEN:
+        print("❌ ERREUR: access_token LinkedIn non configuré dans config.yaml")
+        print("   Veuillez ajouter 'access_token' dans la section linkedin.oauth")
+        return
+    
+    ACCOUNT_ID = linkedin_config['account_id']
 
     # Configuration BigQuery
-    PROJECT_ID = "clean-avatar-466709-a0"
-    DATASET_ID = "linkedin_ads_advertising"
-    CREDENTIALS_PATH = "./.key.json"
+    PROJECT_ID = google_config['project_id']
+    DATASET_ID = google_config['datasets']['linkedin']
+    CREDENTIALS_PATH = google_config['credentials_file']
 
     print("=" * 70)
     print("LINKEDIN BUDGET & BIDDING METRICS")
