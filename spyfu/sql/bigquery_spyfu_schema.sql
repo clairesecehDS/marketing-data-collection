@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS `project-id.spyfu.ppc_keywords` (
   -- Identifiants
   domain STRING NOT NULL,
-  keyword STRING NOT NULL,
+  keyword STRING,
 
   -- Métriques de recherche
   search_volume INT64,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS `project-id.spyfu.ppc_keywords` (
 
   -- Métriques de compétition
   paid_competitors INT64,
-  distinct_competitors INT64,
+  distinct_competitors STRING,
   ranking_homepages INT64,
 
   -- Informations SERP
@@ -134,7 +134,7 @@ ORDER BY domain, search_volume DESC, ranking_difficulty ASC;
 CREATE TABLE IF NOT EXISTS `project-id.spyfu.new_keywords` (
   -- Identifiants
   domain STRING NOT NULL,
-  keyword STRING NOT NULL,
+  keyword STRING,
 
   -- Métriques de recherche
   search_volume INT64,
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS `project-id.spyfu.new_keywords` (
 
   -- Métriques de compétition
   paid_competitors INT64,
-  distinct_competitors INT64,
+  distinct_competitors STRING,
   ranking_homepages INT64,
 
   -- Informations SERP
@@ -225,7 +225,7 @@ ORDER BY domain, search_volume DESC, ranking_difficulty ASC;
 CREATE TABLE IF NOT EXISTS `project-id.spyfu.paid_serps` (
   -- Identifiants
   domain STRING NOT NULL,
-  keyword STRING NOT NULL,
+  keyword STRING,
   term_id INT64,
 
   -- Métriques d'annonce
@@ -306,7 +306,7 @@ ORDER BY domain, search_volume DESC, ad_position ASC;
 CREATE TABLE IF NOT EXISTS `project-id.spyfu.seo_keywords` (
   -- Identifiants
   domain STRING NOT NULL,
-  keyword STRING NOT NULL,
+  keyword STRING,
   search_type STRING,  -- MostValuable, GainedClicks, LostClicks, etc.
 
   -- Ranking
@@ -437,7 +437,7 @@ ORDER BY domain, search_volume DESC, keyword_difficulty ASC;
 CREATE TABLE IF NOT EXISTS `project-id.spyfu.newly_ranked_keywords` (
   -- Identifiants
   domain STRING NOT NULL,
-  keyword STRING NOT NULL,
+  keyword STRING,
 
   -- Ranking
   top_ranked_url STRING,
@@ -546,7 +546,7 @@ CREATE TABLE IF NOT EXISTS `project-id.spyfu.outrank_comparison` (
   -- Identifiants
   domain STRING NOT NULL,
   compare_domain STRING NOT NULL,
-  keyword STRING NOT NULL,
+  keyword STRING,
 
   -- Ranking du concurrent
   top_ranked_url STRING,
