@@ -24,12 +24,7 @@ class SpyFuPPCCollector:
 
     BASE_URL = "https://api.spyfu.com/apis/keyword_api/v2/ppc"
 
-    # Domaines à analyser (à personnaliser)
-    DOMAINS = [
-        "example.com",
-        "competitor1.com",
-        "competitor2.com"
-    ]
+
 
     # Paramètres par défaut
     DEFAULT_PARAMS = {
@@ -178,7 +173,7 @@ class SpyFuPPCCollector:
 
     def collect_all_domains(
         self,
-        domains: Optional[List[str]] = None,
+        domains: List[str],
         country_code: str = "US",
         min_search_volume: Optional[int] = None
     ) -> List[Dict]:
@@ -186,14 +181,15 @@ class SpyFuPPCCollector:
         Collecte les données pour tous les domaines
 
         Args:
-            domains: Liste des domaines (utilise self.DOMAINS si None)
+            domains: Liste des domaines à analyser
             country_code: Code pays
             min_search_volume: Volume de recherche minimum
 
         Returns:
             Liste de tous les mots-clés formatés
         """
-        domains = domains or self.DOMAINS
+        if not domains:
+            raise ValueError("La liste de domaines ne peut pas être vide")
         all_keywords = []
 
         for domain in domains:
@@ -277,17 +273,41 @@ class SpyFuPPCCollector:
             # Convertir en DataFrame
             df = pd.DataFrame(data)
 
+            # Filtrer uniquement les lignes avec domain NULL (requis par le schéma)
+            initial_count = len(df)
+            df = df.dropna(subset=['domain'])
+            filtered_count = initial_count - len(df)
+
+            if filtered_count > 0:
+                print(f"⚠️  {filtered_count} ligne(s) filtrée(s) (champ domain null)")
+
+            if len(df) == 0:
+                print(f"⚠️  Aucune donnée valide à uploader après filtrage")
+                return
+
             # Conversion des types pour BigQuery
+            import json
             for col in df.columns:
                 if df[col].dtype == 'object':
-                    try:
-                        df[col] = pd.to_numeric(df[col])
-                    except (ValueError, TypeError):
-                        pass
+                    # Vérifier si la colonne contient des listes ou dicts
+                    sample = df[col].dropna().iloc[0] if len(df[col].dropna()) > 0 else None
+                    if isinstance(sample, (list, dict)):
+                        # Convertir en JSON string
+                        df[col] = df[col].apply(lambda x: json.dumps(x) if isinstance(x, (list, dict)) else x)
+                        df[col] = df[col].astype(str)
+                    else:
+                        # Pour les autres colonnes object, essayer de convertir en numérique
+                        try:
+                            df[col] = pd.to_numeric(df[col])
+                        except (ValueError, TypeError):
+                            # Garder comme string si conversion échoue
+                            df[col] = df[col].astype(str)
+                            # Remplacer 'None' string par None réel
+                            df[col] = df[col].replace('None', None)
 
             # Gérer les colonnes datetime
             if 'retrieved_at' in df.columns:
-                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'])
+                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'], utc=True)
 
             table_full_id = f"{project_id}.{dataset_id}.{table_id}"
 
@@ -306,6 +326,13 @@ class SpyFuPPCCollector:
 
         except Exception as e:
             print(f"✗ Erreur lors de l'upload BigQuery: {e}")
+            print(f"\nTypes de colonnes:")
+            for col in df.columns:
+                print(f"  - {col}: {df[col].dtype}")
+            print(f"\nPremière ligne (sample):")
+            print(df.iloc[0] if len(df) > 0 else "Aucune donnée")
+            import traceback
+            traceback.print_exc()
 
 
 def main():
@@ -322,6 +349,8 @@ def main():
 
     API_KEY = spyfu_config['api_key']
     PROJECT_ID = google_config['project_id']
+    DATASET_ID = google_config["datasets"]["spyfu"]
+    CREDENTIALS_PATH = google_config["credentials_file"]
     DATASET_ID = google_config['datasets']['spyfu']
     CREDENTIALS_FILE = google_config['credentials_file']
     COUNTRY_CODE = spyfu_config['country_code']
@@ -388,6 +417,7 @@ def main():
         print("=" * 60)
 
         keywords_data = collector.collect_all_domains(
+            domains=DOMAINS,
             country_code=COUNTRY_CODE,
             min_search_volume=min_search_volume
         )
@@ -401,20 +431,16 @@ def main():
 
         # Demander confirmation avant upload BigQuery
         print(f"\n✓ Données sauvegardées: ../data/{json_filename}")
-        print("\n📤 Uploader maintenant vers BigQuery ? [y/n]")
-        choice = input("Choix: ").strip().lower()
 
-        if choice == 'y':
-            collector.upload_to_bigquery(
-                data=keywords_data,
-                project_id=PROJECT_ID,
+        # Upload automatique vers BigQuery
+        print("\n📤 Upload vers BigQuery...")
+        collector.upload_to_bigquery(
+            data=keywords_data,
+            project_id=PROJECT_ID,
                 dataset_id=DATASET_ID,
-                credentials_path=CREDENTIALS_FILE
-            )
-            print("\n✓ Collection et upload terminés")
-        else:
-            print(f"\n✓ Pour uploader plus tard:")
-            print(f"   python spyfu_ppc_keywords.py upload {json_filename}")
+                credentials_path=CREDENTIALS_PATH
+        )
+        print("\n✓ Collection et upload terminés")
 
 
 if __name__ == "__main__":

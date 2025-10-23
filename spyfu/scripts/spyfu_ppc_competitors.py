@@ -5,6 +5,7 @@ Récupère les principaux concurrents PPC pour une liste de domaines
 """
 
 import os
+import sys
 import json
 import requests
 from datetime import datetime
@@ -12,6 +13,10 @@ from typing import List, Dict, Optional
 import pandas as pd
 import pandas_gbq
 from google.oauth2 import service_account
+# Ajouter le répertoire parent au path pour importer config_loader
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+from config_loader import load_config
+
 
 
 class SpyFuPPCCompetitorsCollector:
@@ -19,12 +24,7 @@ class SpyFuPPCCompetitorsCollector:
 
     BASE_URL = "https://api.spyfu.com/apis/competitors_api/v2/ppc"
 
-    # Domaines à analyser (à personnaliser)
-    DOMAINS = [
-        "example.com",
-        "competitor1.com",
-        "competitor2.com"
-    ]
+
 
     # Paramètres par défaut
     DEFAULT_PARAMS = {
@@ -125,20 +125,21 @@ class SpyFuPPCCompetitorsCollector:
 
     def collect_all_domains(
         self,
-        domains: Optional[List[str]] = None,
+        domains: List[str],
         country_code: str = "FR"
     ) -> List[Dict]:
         """
         Collecte les données pour tous les domaines
 
         Args:
-            domains: Liste des domaines (utilise self.DOMAINS si None)
+            domains: Liste des domaines à analyser
             country_code: Code pays
 
         Returns:
             Liste de tous les concurrents formatés
         """
-        domains = domains or self.DOMAINS
+        if not domains:
+            raise ValueError("La liste de domaines ne peut pas être vide")
         all_competitors = []
 
         for domain in domains:
@@ -195,7 +196,7 @@ class SpyFuPPCCompetitorsCollector:
         project_id: str,
         dataset_id: str = "spyfu",
         table_id: str = "ppc_competitors",
-        credentials_path: str = "../../../account-key.json"
+        credentials_path: str = "../../account-key.json"
     ):
         """
         Upload les données vers BigQuery
@@ -221,24 +222,59 @@ class SpyFuPPCCompetitorsCollector:
             # Convertir en DataFrame
             df = pd.DataFrame(data)
 
-            # Conversion des types pour BigQuery
-            for col in df.columns:
-                if df[col].dtype == 'object':
-                    try:
-                        df[col] = pd.to_numeric(df[col])
-                    except (ValueError, TypeError):
-                        pass
+            # Filtrer uniquement les lignes avec domain NULL (requis par le schéma)
+            initial_count = len(df)
+            df = df.dropna(subset=['domain'])
+            filtered_count = initial_count - len(df)
 
-            # Gérer les colonnes datetime
+            if filtered_count > 0:
+                print(f"⚠️  {filtered_count} ligne(s) filtrée(s) (champ domain null)")
+
+            if len(df) == 0:
+                print(f"⚠️  Aucune donnée valide à uploader après filtrage")
+                return
+
+            # Conversion des types pour BigQuery
+            print("🔍 Types avant conversion:")
+            print(df.dtypes)
+            
+            # 1. Gérer les colonnes datetime en premier
             if 'retrieved_at' in df.columns:
-                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'])
+                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'], utc=True)
+
+            # 2. Convertir les colonnes numériques explicitement
+            numeric_columns = {
+                'common_terms': 'int64',  # Utiliser int64 standard au lieu de Int64
+                'rank': 'float64'
+            }
+            
+            for col, dtype in numeric_columns.items():
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').astype(dtype)
+
+            # 3. Convertir les colonnes string - forcer en objet simple
+            string_columns = ['domain', 'competitor_domain', 'country_code']
+            for col in string_columns:
+                if col in df.columns:
+                    # Convertir en object (compatible Parquet)
+                    df[col] = df[col].astype(object)
+
+            print("🔍 Types après conversion:")
+            print(df.dtypes)
+            print("🔍 Premiers exemples:")
+            print(df.head(2))
+            print("🔍 Vérification des valeurs nulles:")
+            print(df.isnull().sum())
+            
+            # Créer une copie pour éviter les problèmes de référence
+            df_upload = df.copy()
 
             table_full_id = f"{project_id}.{dataset_id}.{table_id}"
 
-            print(f"📤 Upload de {len(df)} lignes vers {table_full_id}...")
+            print(f"📤 Upload de {len(df_upload)} lignes vers {table_full_id}...")
 
             pandas_gbq.to_gbq(
-                df,
+                df_upload,
                 destination_table=f"{dataset_id}.{table_id}",
                 project_id=project_id,
                 credentials=credentials,
@@ -256,9 +292,27 @@ def main():
     """Point d'entrée principal"""
     import sys
 
-    # Configuration
-    API_KEY = "HE3RS5GP"
-    PROJECT_ID = "clean-avatar-466709-a0"
+    # ============================================================
+    # CHARGEMENT DE LA CONFIGURATION
+    # ============================================================
+    print("📋 Chargement de la configuration...")
+    config = load_config()
+
+    # Récupérer les configurations
+    spyfu_config = config.get_spyfu_config()
+    google_config = config.get_google_cloud_config()
+
+    API_KEY = spyfu_config['api_key']
+    PROJECT_ID = google_config['project_id']
+    DATASET_ID = google_config["datasets"]["spyfu"]
+    CREDENTIALS_PATH = google_config["credentials_file"]
+
+    # Configuration ppc_competitors
+    specific_config = spyfu_config.get('ppc_competitors', {})
+    if not specific_config.get('enabled', True):
+        print("⚠️  ppc_competitors désactivé dans la configuration")
+        return
+
 
     # Mode: "collect" ou "upload"
     mode = sys.argv[1] if len(sys.argv) > 1 else "collect"
@@ -285,7 +339,9 @@ def main():
             # Upload vers BigQuery
             collector.upload_to_bigquery(
                 data=competitors_data,
-                project_id=PROJECT_ID
+                project_id=PROJECT_ID,
+                dataset_id=DATASET_ID,
+                credentials_path=CREDENTIALS_PATH
             )
             print("\n✓ Upload terminé")
         else:
@@ -294,13 +350,10 @@ def main():
     else:
         # Mode collection normal
         # Domaines à analyser (à personnaliser)
-        DOMAINS = [
-            "essca.eu"
-        ]
+        DOMAINS = spyfu_config["domains"]["all"]
 
         # Initialiser le collecteur
         collector = SpyFuPPCCompetitorsCollector(api_key=API_KEY)
-        collector.DOMAINS = DOMAINS
 
         # Collecter les données
         print("=" * 60)
@@ -308,6 +361,7 @@ def main():
         print("=" * 60)
 
         competitors_data = collector.collect_all_domains(
+            domains=DOMAINS,
             country_code="FR"
         )
 
@@ -320,18 +374,16 @@ def main():
 
         # Demander confirmation avant upload BigQuery
         print(f"\n✓ Données sauvegardées: ../data/{json_filename}")
-        print("\n📤 Uploader maintenant vers BigQuery ? [y/n]")
-        choice = input("Choix: ").strip().lower()
 
-        if choice == 'y':
-            collector.upload_to_bigquery(
-                data=competitors_data,
-                project_id=PROJECT_ID
-            )
-            print("\n✓ Collection et upload terminés")
-        else:
-            print(f"\n✓ Pour uploader plus tard:")
-            print(f"   python spyfu_ppc_competitors.py upload {json_filename}")
+        # Upload automatique vers BigQuery
+        print("\n📤 Upload vers BigQuery...")
+        collector.upload_to_bigquery(
+            data=competitors_data,
+            project_id=PROJECT_ID,
+                dataset_id=DATASET_ID,
+                credentials_path=CREDENTIALS_PATH
+        )
+        print("\n✓ Collection et upload terminés")
 
 
 if __name__ == "__main__":

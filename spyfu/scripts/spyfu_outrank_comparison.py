@@ -5,6 +5,7 @@ Compare où les concurrents surclassent votre domaine en SEO
 """
 
 import os
+import sys
 import json
 import requests
 from datetime import datetime
@@ -12,12 +13,16 @@ from typing import List, Dict, Optional
 import pandas as pd
 import pandas_gbq
 from google.oauth2 import service_account
+# Ajouter le répertoire parent au path pour importer config_loader
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+from config_loader import load_config
+
 
 
 class SpyFuOutrankCollector:
     """Collecteur de comparaisons de ranking SEO depuis l'API SpyFu"""
 
-    BASE_URL = "https://api.spyfu.com/apis/seo_api/v2/seo"
+    BASE_URL = "https://api.spyfu.com/apis/serp_api/v2/seo"
 
     # Comparaisons à effectuer (votre domaine vs concurrents)
     COMPARISONS = [
@@ -70,7 +75,7 @@ class SpyFuOutrankCollector:
         Returns:
             Liste des mots-clés où le concurrent est mieux classé
         """
-        endpoint = f"{self.BASE_URL}/getWhereOutRankYou"
+        endpoint = f"{self.BASE_URL}/getWhereTheyOutRankYou"
 
         params = {
             "query": domain,
@@ -260,7 +265,7 @@ class SpyFuOutrankCollector:
         project_id: str,
         dataset_id: str = "spyfu",
         table_id: str = "outrank_comparison",
-        credentials_path: str = "../../../account-key.json"
+        credentials_path: str = "../../account-key.json"
     ):
         """
         Upload les données vers BigQuery
@@ -286,17 +291,41 @@ class SpyFuOutrankCollector:
             # Convertir en DataFrame
             df = pd.DataFrame(data)
 
+            # Filtrer uniquement les lignes avec domain NULL (requis par le schéma)
+            initial_count = len(df)
+            df = df.dropna(subset=['domain'])
+            filtered_count = initial_count - len(df)
+
+            if filtered_count > 0:
+                print(f"⚠️  {filtered_count} ligne(s) filtrée(s) (champ domain null)")
+
+            if len(df) == 0:
+                print(f"⚠️  Aucune donnée valide à uploader après filtrage")
+                return
+
             # Conversion des types pour BigQuery
+            import json
             for col in df.columns:
                 if df[col].dtype == 'object':
-                    try:
-                        df[col] = pd.to_numeric(df[col])
-                    except (ValueError, TypeError):
-                        pass
+                    # Vérifier si la colonne contient des listes ou dicts
+                    sample = df[col].dropna().iloc[0] if len(df[col].dropna()) > 0 else None
+                    if isinstance(sample, (list, dict)):
+                        # Convertir en JSON string
+                        df[col] = df[col].apply(lambda x: json.dumps(x) if isinstance(x, (list, dict)) else x)
+                        df[col] = df[col].astype(str)
+                    else:
+                        # Pour les autres colonnes object, essayer de convertir en numérique
+                        try:
+                            df[col] = pd.to_numeric(df[col])
+                        except (ValueError, TypeError):
+                            # Garder comme string si conversion échoue
+                            df[col] = df[col].astype(str)
+                            # Remplacer 'None' string par None réel
+                            df[col] = df[col].replace('None', None)
 
             # Gérer les colonnes datetime
             if 'retrieved_at' in df.columns:
-                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'])
+                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'], utc=True)
 
             table_full_id = f"{project_id}.{dataset_id}.{table_id}"
 
@@ -321,9 +350,27 @@ def main():
     """Point d'entrée principal"""
     import sys
 
-    # Configuration
-    API_KEY = "HE3RS5GP"
-    PROJECT_ID = "clean-avatar-466709-a0"
+    # ============================================================
+    # CHARGEMENT DE LA CONFIGURATION
+    # ============================================================
+    print("📋 Chargement de la configuration...")
+    config = load_config()
+
+    # Récupérer les configurations
+    spyfu_config = config.get_spyfu_config()
+    google_config = config.get_google_cloud_config()
+
+    API_KEY = spyfu_config['api_key']
+    PROJECT_ID = google_config['project_id']
+    DATASET_ID = google_config["datasets"]["spyfu"]
+    CREDENTIALS_PATH = google_config["credentials_file"]
+
+    # Configuration outrank_comparison
+    specific_config = spyfu_config.get('outrank_comparison', {})
+    if not specific_config.get('enabled', True):
+        print("⚠️  outrank_comparison désactivé dans la configuration")
+        return
+
 
     # Mode: "collect" ou "upload"
     mode = sys.argv[1] if len(sys.argv) > 1 else "collect"
@@ -350,7 +397,9 @@ def main():
             # Upload vers BigQuery
             collector.upload_to_bigquery(
                 data=keywords_data,
-                project_id=PROJECT_ID
+                project_id=PROJECT_ID,
+                dataset_id=DATASET_ID,
+                credentials_path=CREDENTIALS_PATH
             )
             print("\n✓ Upload terminé")
         else:
@@ -358,11 +407,23 @@ def main():
 
     else:
         # Mode collection normal
-        # Comparaisons à effectuer (PERSONNALISER ICI)
-        COMPARISONS = [
-            {"domain": "essca.eu", "compare_domain": "essec.edu"},
-            {"domain": "essca.eu", "compare_domain": "em-lyon.com"},
-        ]
+        # Récupérer les comparaisons depuis la configuration
+        COMPARISONS = spyfu_config.get('comparisons', [])
+        
+        if not COMPARISONS:
+            print("⚠️  Aucune comparaison configurée dans config.yaml")
+            print("   Ajoutez des comparaisons dans la section 'spyfu.comparisons'")
+            print("   Exemple:")
+            print("   comparisons:")
+            print("     - domain: 'votredomaine.com'")
+            print("       compare_domain: 'concurrent1.com'")
+            print("     - domain: 'votredomaine.com'")
+            print("       compare_domain: 'concurrent2.com'")
+            return
+
+        print(f"📊 {len(COMPARISONS)} comparaison(s) configurée(s)")
+        for comp in COMPARISONS:
+            print(f"   • {comp['domain']} vs {comp['compare_domain']}")
 
         # Initialiser le collecteur
         collector = SpyFuOutrankCollector(api_key=API_KEY)
@@ -387,18 +448,16 @@ def main():
 
         # Demander confirmation avant upload BigQuery
         print(f"\n✓ Données sauvegardées: ../data/{json_filename}")
-        print("\n📤 Uploader maintenant vers BigQuery ? [y/n]")
-        choice = input("Choix: ").strip().lower()
 
-        if choice == 'y':
-            collector.upload_to_bigquery(
-                data=keywords_data,
-                project_id=PROJECT_ID
-            )
-            print("\n✓ Collection et upload terminés")
-        else:
-            print(f"\n✓ Pour uploader plus tard:")
-            print(f"   python spyfu_outrank_comparison.py upload {json_filename}")
+        # Upload automatique vers BigQuery
+        print("\n📤 Upload vers BigQuery...")
+        collector.upload_to_bigquery(
+            data=keywords_data,
+            project_id=PROJECT_ID,
+                dataset_id=DATASET_ID,
+                credentials_path=CREDENTIALS_PATH
+        )
+        print("\n✓ Collection et upload terminés")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ Récupère les mots-clés SEO nouvellement classés pour une liste de domaines
 """
 
 import os
+import sys
 import json
 import requests
 from datetime import datetime
@@ -12,6 +13,10 @@ from typing import List, Dict, Optional
 import pandas as pd
 import pandas_gbq
 from google.oauth2 import service_account
+# Ajouter le répertoire parent au path pour importer config_loader
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+from config_loader import load_config
+
 
 
 class SpyFuNewlyRankedCollector:
@@ -19,12 +24,7 @@ class SpyFuNewlyRankedCollector:
 
     BASE_URL = "https://api.spyfu.com/apis/serp_api/v2/seo"
 
-    # Domaines à analyser (à personnaliser)
-    DOMAINS = [
-        "example.com",
-        "competitor1.com",
-        "competitor2.com"
-    ]
+
 
     # Paramètres par défaut
     DEFAULT_PARAMS = {
@@ -179,7 +179,7 @@ class SpyFuNewlyRankedCollector:
 
     def collect_all_domains(
         self,
-        domains: Optional[List[str]] = None,
+        domains: List[str],
         country_code: str = "FR",
         min_search_volume: Optional[int] = None
     ) -> List[Dict]:
@@ -187,14 +187,15 @@ class SpyFuNewlyRankedCollector:
         Collecte les données pour tous les domaines
 
         Args:
-            domains: Liste des domaines (utilise self.DOMAINS si None)
+            domains: Liste des domaines à analyser
             country_code: Code pays
             min_search_volume: Volume de recherche minimum
 
         Returns:
             Liste de tous les mots-clés formatés
         """
-        domains = domains or self.DOMAINS
+        if not domains:
+            raise ValueError("La liste de domaines ne peut pas être vide")
         all_keywords = []
 
         for domain in domains:
@@ -252,7 +253,7 @@ class SpyFuNewlyRankedCollector:
         project_id: str,
         dataset_id: str = "spyfu",
         table_id: str = "newly_ranked_keywords",
-        credentials_path: str = "../../../account-key.json"
+        credentials_path: str = "../../account-key.json"
     ):
         """
         Upload les données vers BigQuery
@@ -278,17 +279,41 @@ class SpyFuNewlyRankedCollector:
             # Convertir en DataFrame
             df = pd.DataFrame(data)
 
+            # Filtrer uniquement les lignes avec domain NULL (requis par le schéma)
+            initial_count = len(df)
+            df = df.dropna(subset=['domain'])
+            filtered_count = initial_count - len(df)
+
+            if filtered_count > 0:
+                print(f"⚠️  {filtered_count} ligne(s) filtrée(s) (champ domain null)")
+
+            if len(df) == 0:
+                print(f"⚠️  Aucune donnée valide à uploader après filtrage")
+                return
+
             # Conversion des types pour BigQuery
+            import json
             for col in df.columns:
                 if df[col].dtype == 'object':
-                    try:
-                        df[col] = pd.to_numeric(df[col])
-                    except (ValueError, TypeError):
-                        pass
+                    # Vérifier si la colonne contient des listes ou dicts
+                    sample = df[col].dropna().iloc[0] if len(df[col].dropna()) > 0 else None
+                    if isinstance(sample, (list, dict)):
+                        # Convertir en JSON string
+                        df[col] = df[col].apply(lambda x: json.dumps(x) if isinstance(x, (list, dict)) else x)
+                        df[col] = df[col].astype(str)
+                    else:
+                        # Pour les autres colonnes object, essayer de convertir en numérique
+                        try:
+                            df[col] = pd.to_numeric(df[col])
+                        except (ValueError, TypeError):
+                            # Garder comme string si conversion échoue
+                            df[col] = df[col].astype(str)
+                            # Remplacer 'None' string par None réel
+                            df[col] = df[col].replace('None', None)
 
             # Gérer les colonnes datetime
             if 'retrieved_at' in df.columns:
-                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'])
+                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'], utc=True)
 
             table_full_id = f"{project_id}.{dataset_id}.{table_id}"
 
@@ -313,9 +338,27 @@ def main():
     """Point d'entrée principal"""
     import sys
 
-    # Configuration
-    API_KEY = "HE3RS5GP"
-    PROJECT_ID = "clean-avatar-466709-a0"
+    # ============================================================
+    # CHARGEMENT DE LA CONFIGURATION
+    # ============================================================
+    print("📋 Chargement de la configuration...")
+    config = load_config()
+
+    # Récupérer les configurations
+    spyfu_config = config.get_spyfu_config()
+    google_config = config.get_google_cloud_config()
+
+    API_KEY = spyfu_config['api_key']
+    PROJECT_ID = google_config['project_id']
+    DATASET_ID = google_config["datasets"]["spyfu"]
+    CREDENTIALS_PATH = google_config["credentials_file"]
+
+    # Configuration newly_ranked
+    specific_config = spyfu_config.get('newly_ranked', {})
+    if not specific_config.get('enabled', True):
+        print("⚠️  newly_ranked désactivé dans la configuration")
+        return
+
 
     # Mode: "collect" ou "upload"
     mode = sys.argv[1] if len(sys.argv) > 1 else "collect"
@@ -342,7 +385,9 @@ def main():
             # Upload vers BigQuery
             collector.upload_to_bigquery(
                 data=keywords_data,
-                project_id=PROJECT_ID
+                project_id=PROJECT_ID,
+                dataset_id=DATASET_ID,
+                credentials_path=CREDENTIALS_PATH
             )
             print("\n✓ Upload terminé")
         else:
@@ -351,13 +396,10 @@ def main():
     else:
         # Mode collection normal
         # Domaines à analyser (à personnaliser)
-        DOMAINS = [
-            "essca.eu"
-        ]
+        DOMAINS = spyfu_config["domains"]["all"]
 
         # Initialiser le collecteur
         collector = SpyFuNewlyRankedCollector(api_key=API_KEY)
-        collector.DOMAINS = DOMAINS
 
         # Collecter les données
         print("=" * 60)
@@ -365,6 +407,7 @@ def main():
         print("=" * 60)
 
         keywords_data = collector.collect_all_domains(
+            domains=DOMAINS,
             country_code="FR",
             min_search_volume=100  # Optionnel: filtrer par volume minimum
         )
@@ -378,18 +421,16 @@ def main():
 
         # Demander confirmation avant upload BigQuery
         print(f"\n✓ Données sauvegardées: ../data/{json_filename}")
-        print("\n📤 Uploader maintenant vers BigQuery ? [y/n]")
-        choice = input("Choix: ").strip().lower()
 
-        if choice == 'y':
-            collector.upload_to_bigquery(
-                data=keywords_data,
-                project_id=PROJECT_ID
-            )
-            print("\n✓ Collection et upload terminés")
-        else:
-            print(f"\n✓ Pour uploader plus tard:")
-            print(f"   python spyfu_newly_ranked.py upload {json_filename}")
+        # Upload automatique vers BigQuery
+        print("\n📤 Upload vers BigQuery...")
+        collector.upload_to_bigquery(
+            data=keywords_data,
+            project_id=PROJECT_ID,
+                dataset_id=DATASET_ID,
+                credentials_path=CREDENTIALS_PATH
+        )
+        print("\n✓ Collection et upload terminés")
 
 
 if __name__ == "__main__":

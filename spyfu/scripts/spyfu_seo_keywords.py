@@ -5,6 +5,7 @@ Récupère les mots-clés SEO organiques pour une liste de domaines
 """
 
 import os
+import sys
 import json
 import requests
 from datetime import datetime
@@ -13,18 +14,15 @@ import pandas as pd
 import pandas_gbq
 from google.oauth2 import service_account
 
+# Ajouter le répertoire parent au path pour importer config_loader
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+from config_loader import load_config
+
 
 class SpyFuSeoKeywordsCollector:
     """Collecteur de mots-clés SEO depuis l'API SpyFu"""
 
     BASE_URL = "https://api.spyfu.com/apis/serp_api/v2/seo"
-
-    # Domaines à analyser (à personnaliser)
-    DOMAINS = [
-        "example.com",
-        "competitor1.com",
-        "competitor2.com"
-    ]
 
     # Types de recherche SEO disponibles
     SEARCH_TYPES = [
@@ -192,7 +190,7 @@ class SpyFuSeoKeywordsCollector:
 
     def collect_all_domains(
         self,
-        domains: Optional[List[str]] = None,
+        domains: List[str],
         search_type: str = "MostValuable",
         country_code: str = "FR",
         min_search_volume: Optional[int] = None
@@ -201,7 +199,7 @@ class SpyFuSeoKeywordsCollector:
         Collecte les données pour tous les domaines
 
         Args:
-            domains: Liste des domaines (utilise self.DOMAINS si None)
+            domains: Liste des domaines à analyser
             search_type: Type de recherche SEO
             country_code: Code pays
             min_search_volume: Volume de recherche minimum
@@ -209,7 +207,9 @@ class SpyFuSeoKeywordsCollector:
         Returns:
             Liste de tous les mots-clés formatés
         """
-        domains = domains or self.DOMAINS
+        if not domains:
+            raise ValueError("La liste de domaines ne peut pas être vide")
+
         all_keywords = []
 
         for domain in domains:
@@ -268,7 +268,7 @@ class SpyFuSeoKeywordsCollector:
         project_id: str,
         dataset_id: str = "spyfu",
         table_id: str = "seo_keywords",
-        credentials_path: str = "../../../account-key.json"
+        credentials_path: str = "../../account-key.json"
     ):
         """
         Upload les données vers BigQuery
@@ -294,17 +294,41 @@ class SpyFuSeoKeywordsCollector:
             # Convertir en DataFrame
             df = pd.DataFrame(data)
 
+            # Filtrer uniquement les lignes avec domain NULL (requis par le schéma)
+            initial_count = len(df)
+            df = df.dropna(subset=['domain'])
+            filtered_count = initial_count - len(df)
+
+            if filtered_count > 0:
+                print(f"⚠️  {filtered_count} ligne(s) filtrée(s) (champ domain null)")
+
+            if len(df) == 0:
+                print(f"⚠️  Aucune donnée valide à uploader après filtrage")
+                return
+
             # Conversion des types pour BigQuery
+            import json
             for col in df.columns:
                 if df[col].dtype == 'object':
-                    try:
-                        df[col] = pd.to_numeric(df[col])
-                    except (ValueError, TypeError):
-                        pass
+                    # Vérifier si la colonne contient des listes ou dicts
+                    sample = df[col].dropna().iloc[0] if len(df[col].dropna()) > 0 else None
+                    if isinstance(sample, (list, dict)):
+                        # Convertir en JSON string
+                        df[col] = df[col].apply(lambda x: json.dumps(x) if isinstance(x, (list, dict)) else x)
+                        df[col] = df[col].astype(str)
+                    else:
+                        # Pour les autres colonnes object, essayer de convertir en numérique
+                        try:
+                            df[col] = pd.to_numeric(df[col])
+                        except (ValueError, TypeError):
+                            # Garder comme string si conversion échoue
+                            df[col] = df[col].astype(str)
+                            # Remplacer 'None' string par None réel
+                            df[col] = df[col].replace('None', None)
 
             # Gérer les colonnes datetime
             if 'retrieved_at' in df.columns:
-                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'])
+                df['retrieved_at'] = pd.to_datetime(df['retrieved_at'], utc=True)
 
             table_full_id = f"{project_id}.{dataset_id}.{table_id}"
 
@@ -327,11 +351,35 @@ class SpyFuSeoKeywordsCollector:
 
 def main():
     """Point d'entrée principal"""
-    import sys
 
-    # Configuration
-    API_KEY = "HE3RS5GP"
-    PROJECT_ID = "clean-avatar-466709-a0"
+    # ============================================================
+    # CHARGEMENT DE LA CONFIGURATION
+    # ============================================================
+    print("📋 Chargement de la configuration...")
+    config = load_config()
+
+    # Récupérer les configurations
+    spyfu_config = config.get_spyfu_config()
+    google_config = config.get_google_cloud_config()
+
+    API_KEY = spyfu_config['api_key']
+    PROJECT_ID = google_config['project_id']
+    DATASET_ID = google_config['datasets']['spyfu']
+    CREDENTIALS_PATH = google_config['credentials_file']
+
+    # Configuration SEO Keywords
+    seo_config = spyfu_config.get('seo_keywords', {})
+    if not seo_config.get('enabled', True):
+        print("⚠️  SEO Keywords désactivé dans la configuration")
+        return
+
+    # Paramètres depuis la configuration
+    DOMAINS = spyfu_config['domains']['all']
+    SEARCH_TYPE = seo_config.get('search_type', 'MostValuable')
+    COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code', 'FR')
+    MIN_SEARCH_VOLUME = seo_config.get('filters', {}).get('min_search_volume', 100)
+    MIN_SEO_CLICKS = seo_config.get('filters', {}).get('min_seo_clicks', 10)
+    SORT_BY = seo_config.get('sort_by', 'SearchVolume')
 
     # Mode: "collect" ou "upload"
     mode = sys.argv[1] if len(sys.argv) > 1 else "collect"
@@ -358,7 +406,9 @@ def main():
             # Upload vers BigQuery
             collector.upload_to_bigquery(
                 data=keywords_data,
-                project_id=PROJECT_ID
+                project_id=PROJECT_ID,
+                dataset_id=DATASET_ID,
+                credentials_path=CREDENTIALS_PATH
             )
             print("\n✓ Upload terminé")
         else:
@@ -366,28 +416,24 @@ def main():
 
     else:
         # Mode collection normal
-        # Domaines à analyser (à personnaliser)
-        DOMAINS = [
-            "essca.eu"
-        ]
-
-        # Type de recherche SEO
-        # Options: MostValuable, GainedClicks, LostClicks, JustMadeIt, JustLostIt, All
-        SEARCH_TYPE = "MostValuable"
-
-        # Initialiser le collecteur
-        collector = SpyFuSeoKeywordsCollector(api_key=API_KEY)
-        collector.DOMAINS = DOMAINS
-
-        # Collecter les données
         print("=" * 60)
         print(f"SpyFu SEO Keywords Collection ({SEARCH_TYPE})")
         print("=" * 60)
+        print(f"  - Domaines: {len(DOMAINS)}")
+        print(f"  - Pays: {COUNTRY_CODE}")
+        print(f"  - Volume min: {MIN_SEARCH_VOLUME}")
+        print(f"  - Clics SEO min: {MIN_SEO_CLICKS}")
+        print()
 
+        # Initialiser le collecteur
+        collector = SpyFuSeoKeywordsCollector(api_key=API_KEY)
+
+        # Collecter les données
         keywords_data = collector.collect_all_domains(
+            domains=DOMAINS,
             search_type=SEARCH_TYPE,
-            country_code="FR",
-            min_search_volume=100  # Optionnel: filtrer par volume minimum
+            country_code=COUNTRY_CODE,
+            min_search_volume=MIN_SEARCH_VOLUME
         )
 
         print(f"\n✓ Total: {len(keywords_data)} keywords SEO collectés")
@@ -396,21 +442,17 @@ def main():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         json_filename = f"spyfu_seo_keywords_{SEARCH_TYPE}_{timestamp}.json"
         collector.export_to_json(keywords_data, json_filename)
+        print(f"✓ Données sauvegardées: ../data/{json_filename}")
 
-        # Demander confirmation avant upload BigQuery
-        print(f"\n✓ Données sauvegardées: ../data/{json_filename}")
-        print("\n📤 Uploader maintenant vers BigQuery ? [y/n]")
-        choice = input("Choix: ").strip().lower()
-
-        if choice == 'y':
-            collector.upload_to_bigquery(
-                data=keywords_data,
-                project_id=PROJECT_ID
-            )
-            print("\n✓ Collection et upload terminés")
-        else:
-            print(f"\n✓ Pour uploader plus tard:")
-            print(f"   python spyfu_seo_keywords.py upload {json_filename}")
+        # Upload automatique vers BigQuery
+        print("\n📤 Upload vers BigQuery...")
+        collector.upload_to_bigquery(
+            data=keywords_data,
+            project_id=PROJECT_ID,
+            dataset_id=DATASET_ID,
+            credentials_path=CREDENTIALS_PATH
+        )
+        print("\n✓ Collection et upload terminés")
 
 
 if __name__ == "__main__":
