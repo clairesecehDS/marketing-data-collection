@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import requests
+import time
 from datetime import datetime
 from typing import List, Dict, Optional
 import pandas as pd
@@ -60,7 +61,8 @@ class SpyFuTopPagesCollector:
         page_size: int = 1000,
         min_seo_clicks: Optional[int] = None,
         keyword_filter: Optional[str] = None,
-        sort_by: str = "SeoClicks"
+        sort_by: str = "SeoClicks",
+        max_retries: int = 3
     ) -> List[Dict]:
         """
         Récupère les pages les plus performantes en SEO pour un domaine
@@ -73,6 +75,7 @@ class SpyFuTopPagesCollector:
             min_seo_clicks: Nombre minimum de clics SEO mensuels
             keyword_filter: Filtre sur les mots-clés (optionnel)
             sort_by: Tri (SeoClicks est le seul supporté)
+            max_retries: Nombre maximum de tentatives en cas de rate limit
 
         Returns:
             Liste des pages avec leurs métriques SEO
@@ -100,22 +103,52 @@ class SpyFuTopPagesCollector:
             "Accept": "application/json"
         }
 
-        try:
-            print(f"📄 Récupération des top pages pour {domain}...")
-            response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
-            response.raise_for_status()
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    print(f"🔄 Tentative {attempt + 1}/{max_retries} pour {domain}...")
+                else:
+                    print(f"📄 Récupération des top pages pour {domain}...")
 
-            data = response.json()
-            pages = data.get("results", [])
+                response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
+                response.raise_for_status()
 
-            print(f"✓ {len(pages)} pages récupérées pour {domain}")
-            return pages
+                data = response.json()
+                pages = data.get("results", [])
 
-        except requests.exceptions.RequestException as e:
-            print(f"✗ Erreur API pour {domain}: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"  Détails: {e.response.text}")
-            return []
+                print(f"✓ {len(pages)} pages récupérées pour {domain}")
+                return pages
+
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    # Rate limit atteint
+                    retry_after = 2  # Délai par défaut
+                    try:
+                        error_data = e.response.json()
+                        retry_after = error_data.get("retryAfter", 2)
+                    except:
+                        pass
+
+                    if attempt < max_retries - 1:
+                        print(f"⏳ Rate limit atteint pour {domain}. Attente de {retry_after}s avant nouvelle tentative...")
+                        time.sleep(retry_after)
+                        continue
+                    else:
+                        print(f"✗ Rate limit atteint pour {domain} après {max_retries} tentatives")
+                        return []
+                else:
+                    print(f"✗ Erreur HTTP {e.response.status_code} pour {domain}: {e}")
+                    if hasattr(e, 'response') and e.response is not None:
+                        print(f"  Détails: {e.response.text}")
+                    return []
+
+            except requests.exceptions.RequestException as e:
+                print(f"✗ Erreur API pour {domain}: {e}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"  Détails: {e.response.text}")
+                return []
+
+        return []
 
     def parse_page_data(self, page_data: Dict, domain: str, country_code: str) -> Dict:
         """
@@ -155,7 +188,8 @@ class SpyFuTopPagesCollector:
         domains: List[str],
         search_type: str = "MostTraffic",
         country_code: str = "FR",
-        min_seo_clicks: Optional[int] = None
+        min_seo_clicks: Optional[int] = None,
+        delay_between_domains: float = 1.5
     ) -> List[Dict]:
         """
         Collecte les données pour tous les domaines
@@ -165,6 +199,7 @@ class SpyFuTopPagesCollector:
             search_type: Type de recherche (MostTraffic ou New)
             country_code: Code pays
             min_seo_clicks: Nombre minimum de clics SEO mensuels
+            delay_between_domains: Délai en secondes entre chaque domaine
 
         Returns:
             Liste de toutes les pages formatées
@@ -173,7 +208,11 @@ class SpyFuTopPagesCollector:
             raise ValueError("La liste de domaines ne peut pas être vide")
         all_pages = []
 
-        for domain in domains:
+        for i, domain in enumerate(domains):
+            # Ajouter un délai entre les domaines (sauf pour le premier)
+            if i > 0 and delay_between_domains > 0:
+                time.sleep(delay_between_domains)
+
             raw_pages = self.get_top_pages(
                 domain=domain,
                 search_type=search_type,
@@ -386,7 +425,7 @@ def main():
             domains=DOMAINS,
             search_type="MostTraffic",  # "MostTraffic" ou "New"
             country_code="FR",
-            min_seo_clicks=50  # Optionnel: filtrer par clics SEO minimum
+            min_seo_clicks=None  # Pas de filtre minimum pour avoir tous les résultats
         )
 
         print(f"\n✓ Total: {len(pages_data)} pages collectées")
