@@ -244,20 +244,20 @@ class SpyFuPPCCompetitorsCollector:
 
             # 2. Convertir les colonnes numériques explicitement
             numeric_columns = {
-                'common_terms': 'int64',  # Utiliser int64 standard au lieu de Int64
-                'rank': 'float64'
+                'common_terms': 'int64',
+                'rank': 'int64'  # rank doit être INT64 selon le schéma BigQuery
             }
             
             for col, dtype in numeric_columns.items():
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce').astype(dtype)
 
-            # 3. Convertir les colonnes string - forcer en objet simple
+            # 3. Convertir les colonnes string - convertir en str et remplacer les None
             string_columns = ['domain', 'competitor_domain', 'country_code']
             for col in string_columns:
                 if col in df.columns:
-                    # Convertir en object (compatible Parquet)
-                    df[col] = df[col].astype(object)
+                    # Convertir None en string vide puis en type string pandas
+                    df[col] = df[col].fillna('').astype(str)
 
             print("🔍 Types après conversion:")
             print(df.dtypes)
