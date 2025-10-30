@@ -6,6 +6,7 @@ import pandas as pd
 from google.cloud import bigquery
 import os
 import sys
+import time
 
 # Ajouter le répertoire parent au path pour importer config_loader
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
@@ -117,7 +118,7 @@ class LinkedInCampaignAnalytics:
                       time_granularity: str = "ALL",
                       fields: Optional[List[str]] = None) -> Dict:
         """
-        Récupère les analytics pour une ou plusieurs campagnes
+        Récupère les analytics pour une ou plusieurs campagnes (une par une)
 
         Args:
             campaign_urns: Liste des URNs des campagnes (ex: ['urn:li:sponsoredCampaign:123456'])
@@ -128,7 +129,7 @@ class LinkedInCampaignAnalytics:
             fields: Liste des champs à récupérer (si None, récupère les principaux)
 
         Returns:
-            dict: Données analytics
+            dict: Données analytics (combinées de toutes les campagnes)
         """
         # Utiliser le format REST selon la doc officielle
         url = f"{self.base_url}/adAnalytics"
@@ -149,30 +150,75 @@ class LinkedInCampaignAnalytics:
                 "externalWebsitePostViewConversions"
             ]
 
-        # Format qui FONCTIONNE selon le curl qui a marché
-        # Format dateRange: seulement start (pas de end)
-        date_range_str = f"(start:(year:{start_date.year},month:{start_date.month},day:{start_date.day}))"
+        # Récupérer les analytics campagne par campagne
+        all_elements = []
+        total_campaigns = len(campaign_urns)
 
-        # Encoder les URNs dans campaigns (remplacer : par %3A)
-        campaigns_urns_encoded = ','.join([urn.replace(':', '%3A') for urn in campaign_urns])
-        campaigns_str = f"List({campaigns_urns_encoded})"
+        for idx, campaign_urn in enumerate(campaign_urns, 1):
+            # Format selon la doc officielle LinkedIn
+            # https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting
+            # Exemple: GET https://api.linkedin.com/rest/adAnalytics?q=analytics&pivot=CREATIVE&timeGranularity=ALL&dateRange=(start:(year:2024,month:1,day:1))&campaigns=List(urn%3Ali%3AsponsoredCampaign%3A1234567)
 
-        # Construire l'URL manuellement (garder les parenthèses et deux-points de la structure)
-        query_string = f"q=analytics&pivot={pivot}&timeGranularity={time_granularity}&dateRange={date_range_str}&campaigns={campaigns_str}"
-        full_url = f"{url}?{query_string}"
+            # LinkedIn n'accepte PAS l'encodage URL standard pour dateRange et campaigns
+            # Il faut construire l'URL manuellement en n'encodant que les URNs
+            campaign_urn_encoded = campaign_urn.replace(':', '%3A')
+            date_range_str = f"(start:(year:{start_date.year},month:{start_date.month},day:{start_date.day}))"
+            campaigns_str = f"List({campaign_urn_encoded})"
 
-        response = requests.get(
-            full_url,
-            headers=self._get_headers()
-        )
+            # Construire l'URL complète sans utiliser params
+            query_params = f"q=analytics&pivot={pivot}&dateRange={date_range_str}&timeGranularity={time_granularity}&campaigns={campaigns_str}"
+            full_url = f"{url}?{query_params}"
 
-        if response.status_code != 200:
-            print(f"Erreur API: {response.status_code}")
-            print(f"URL: {response.url}")
-            print(f"Réponse: {response.text}")
-            response.raise_for_status()
+            # Retry logic avec backoff pour gérer le rate limiting
+            max_retries = 3
+            retry_delay = 2  # secondes
 
-        return response.json()
+            for attempt in range(max_retries):
+                try:
+                    response = requests.get(
+                        full_url,
+                        headers=self._get_headers(),
+                        timeout=30
+                    )
+
+                    # Si rate limited (429) ou erreur serveur (5xx), attendre et réessayer
+                    if response.status_code == 429:
+                        retry_after = int(response.headers.get('Retry-After', retry_delay * (attempt + 1)))
+                        print(f"  [{idx}/{total_campaigns}] Rate limit atteint, pause de {retry_after}s...")
+                        time.sleep(retry_after)
+                        continue
+
+                    if response.status_code >= 500:
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay * (attempt + 1))
+                            continue
+
+                    if response.status_code == 200:
+                        campaign_data = response.json()
+                        elements = campaign_data.get("elements", [])
+
+                        if elements:
+                            all_elements.extend(elements)
+                        break  # Succès, sortir de la boucle de retry
+
+                    else:
+                        # Autre erreur, passer à la campagne suivante
+                        break
+
+                except requests.exceptions.RequestException as e:
+                    if attempt < max_retries - 1:
+                        print(f"  [{idx}/{total_campaigns}] Erreur réseau, retry {attempt + 1}/{max_retries}...")
+                        time.sleep(retry_delay * (attempt + 1))
+                    else:
+                        print(f"  [{idx}/{total_campaigns}] ✗ Erreur finale après {max_retries} tentatives")
+                        break
+
+            # Pause entre chaque requête pour respecter le rate limit (2 secondes)
+            if idx < total_campaigns:
+                time.sleep(2)
+
+        # Retourner un dict avec tous les éléments combinés
+        return {"elements": all_elements}
 
     def calculate_metrics(self, analytics_data: Dict) -> List[Dict]:
         """
@@ -187,6 +233,10 @@ class LinkedInCampaignAnalytics:
         results = []
 
         for element in analytics_data.get("elements", []):
+            # Extraire le pivotValue (l'API retourne pivotValues en array)
+            pivot_values = element.get("pivotValues", [])
+            pivot_value = pivot_values[0] if pivot_values else ""
+
             # Extraire les métriques de base
             impressions = element.get("impressions", 0)
             clicks = element.get("clicks", 0)
@@ -205,7 +255,7 @@ class LinkedInCampaignAnalytics:
             # Construire le dictionnaire de résultats
             # pivotValue contient l'URN (campaign ou creative selon le pivot)
             result = {
-                "pivotValue": element.get("pivotValue", ""),  # Garder le pivotValue pour traitement ultérieur
+                "pivotValue": pivot_value,  # Utiliser pivotValues[0] de l'API
                 "date_range": element.get("dateRange", {}),
                 "impressions": impressions,
                 "clicks": clicks,
@@ -308,10 +358,6 @@ class LinkedInCampaignAnalytics:
                     # Pour CREATIVE pivot: le pivotValue contient urn:li:sponsoredCreative:XXXXX
                     df['creative_urn'] = urns
                     df['creative_id'] = urns.str.split(':').str[-1]
-                    # Pour les creatives, on n'a pas directement le campaign_id dans pivotValue
-                    # Il faudrait le récupérer via l'API ou le laisser vide
-                    df['campaign_id'] = None
-                    df['campaign_urn'] = None
                 else:
                     # Pour CAMPAIGN pivot: le pivotValue contient urn:li:sponsoredCampaign:XXXXX
                     df['campaign_urn'] = urns
