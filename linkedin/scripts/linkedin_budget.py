@@ -77,32 +77,43 @@ class LinkedInBudgetClient:
         data = response.json()
         return data.get("elements", [])
 
-    def get_creatives(self, campaign_urns: List[str]) -> List[Dict]:
+    def get_creatives(self, campaign_urns: List[str], account_id: Optional[str] = None) -> List[Dict]:
         """
         Récupère les creatives pour une liste de campagnes
 
         Args:
             campaign_urns: Liste des URNs des campagnes
+            account_id: ID du compte publicitaire (optionnel, utilise self.account_id par défaut)
 
         Returns:
             list: Liste des creatives
         """
+        # Utiliser l'account_id passé en paramètre ou celui de l'instance
+        acc_id = account_id or self.account_id
+
+        if not acc_id:
+            raise ValueError("account_id est requis pour récupérer les creatives")
+
         all_creatives = []
 
         for campaign_urn in campaign_urns:
             # Extraire l'ID de la campagne depuis l'URN
             campaign_id = campaign_urn.split(':')[-1]
 
-            url = f"{self.base_url}/adCreatives"
-            params = {
-                "q": "criteria",
-                "criteria.campaigns": f"List({campaign_urn.replace(':', '%3A')})"
-            }
+            # Encoder l'URN pour l'URL (remplacer : par %3A)
+            campaign_urn_encoded = campaign_urn.replace(':', '%3A')
+
+            # Nouveau endpoint selon la doc: /adAccounts/{id}/creatives
+            url = f"{self.base_url}/adAccounts/{acc_id}/creatives"
+            query_params = f"q=criteria&campaigns=List({campaign_urn_encoded})"
+            full_url = f"{url}?{query_params}"
+
+            headers = self._get_headers()
+            headers['X-RestLi-Method'] = 'FINDER'  # Header supplémentaire requis
 
             response = requests.get(
-                url,
-                headers=self._get_headers(),
-                params=params
+                full_url,
+                headers=headers
             )
 
             if response.status_code == 200:
@@ -114,22 +125,165 @@ class LinkedInBudgetClient:
                     creative['_campaign_id'] = campaign_id
                 all_creatives.extend(creatives)
             else:
-                print(f"⚠️  Erreur lors de la récupération des creatives pour {campaign_urn}: {response.status_code}")
+                # Afficher l'URL pour debug (première erreur seulement)
+                if len(all_creatives) == 0 and not hasattr(self, '_debug_shown'):
+                    print(f"⚠️  Erreur {response.status_code} pour {campaign_urn}")
+                    print(f"     URL: {response.url}")
+                    print(f"     Réponse: {response.text[:200]}")
+                    self._debug_shown = True
 
         return all_creatives
 
-    def extract_budget_metrics(self, campaigns: List[Dict], pivot: str = "CAMPAIGN") -> List[Dict]:
+    def calculate_budget_spent_from_analytics(self) -> Dict[str, float]:
+        """
+        Calcule le budget dépensé pour chaque campagne à partir de la table campaign_analytics dans BigQuery
+
+        Returns:
+            dict: Mapping campaign_id -> budget_spent (coût total en USD)
+        """
+        try:
+            client = self._get_bigquery_client()
+            table_id = f"{self.project_id}.{self.dataset_id}.campaign_analytics"
+
+            # Requête pour calculer le coût total par campagne
+            query = f"""
+                SELECT
+                    campaign_id,
+                    SUM(cost_in_usd) as total_spent
+                FROM `{table_id}`
+                WHERE campaign_id IS NOT NULL
+                GROUP BY campaign_id
+            """
+
+            results = client.query(query).result()
+
+            # Créer un dictionnaire campaign_id -> budget_spent
+            budget_spent_map = {}
+            for row in results:
+                budget_spent_map[str(row.campaign_id)] = float(row.total_spent) if row.total_spent else 0.0
+
+            return budget_spent_map
+
+        except Exception as e:
+            print(f"⚠️  Impossible de calculer budget_spent depuis BigQuery: {e}")
+            return {}
+
+    def get_budget_pricing(self, campaign: Dict, account_id: Optional[str] = None) -> Dict:
+        """
+        Récupère les recommandations de budget et bid pour une campagne via /adBudgetPricing
+        Utilise un ciblage simplifié générique pour obtenir des estimations approximatives
+
+        Args:
+            campaign: Dictionnaire contenant les détails de la campagne
+            account_id: ID du compte publicitaire (optionnel)
+
+        Returns:
+            dict: Contenant min_bid, max_bid, suggested_bid, etc. (ou valeurs None si erreur)
+        """
+        acc_id = account_id or self.account_id
+
+        if not acc_id:
+            return {"min_bid": None, "max_bid": None, "suggested_bid": None}
+
+        try:
+            # Extraire les paramètres nécessaires de la campagne
+            account_urn = f"urn:li:sponsoredAccount:{acc_id}"
+            bid_type = campaign.get("costType", "CPM")  # CPC, CPM, etc.
+            objective_type = campaign.get("objectiveType", "BRAND_AWARENESS")
+            campaign_type = campaign.get("type", "TEXT_AD")
+
+            # Daily budget (requis pour l'API)
+            daily_budget_obj = campaign.get("dailyBudget", {})
+            daily_budget_amount = daily_budget_obj.get("amount", "100")
+            daily_budget_currency = daily_budget_obj.get("currencyCode", "USD")
+
+            # Construire l'URL avec encodage manuel
+            url = f"{self.base_url}/adBudgetPricing"
+            account_encoded = account_urn.replace(':', '%3A')
+
+            # Ciblage minimal générique (France + 25-54 ans)
+            # Format selon la doc LinkedIn: (include:(and:List((or:(facet:List(value))))))
+            targeting_simplified = (
+                "(include:(and:List((or:(urn%3Ali%3AadTargetingFacet%3AprofileLocations:"
+                "List(urn%3Ali%3Ageo%3A105015875))))))"  # France
+            )
+
+            query_params = (
+                f"q=criteriaV2"
+                f"&account={account_encoded}"
+                f"&bidType={bid_type}"
+                f"&objectiveType={objective_type}"
+                f"&campaignType={campaign_type}"
+                f"&dailyBudget=(amount:{daily_budget_amount},currencyCode:{daily_budget_currency})"
+                f"&targetingCriteria={targeting_simplified}"
+            )
+
+            full_url = f"{url}?{query_params}"
+
+            response = requests.get(
+                full_url,
+                headers=self._get_headers(),
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                elements = data.get("elements", [])
+
+                if elements:
+                    pricing = elements[0]
+                    bid_limits = pricing.get("bidLimits", {})
+                    suggested_bid = pricing.get("suggestedBid", {})
+
+                    return {
+                        "min_bid": bid_limits.get("min", {}).get("amount"),
+                        "max_bid": bid_limits.get("max", {}).get("amount"),
+                        "suggested_bid_default": suggested_bid.get("default", {}).get("amount"),
+                        "suggested_bid_min": suggested_bid.get("min", {}).get("amount"),
+                        "suggested_bid_max": suggested_bid.get("max", {}).get("amount")
+                    }
+            else:
+                # Debug: afficher l'erreur pour la première campagne
+                if not hasattr(self, '_pricing_debug_shown'):
+                    print(f"\n⚠️  Erreur adBudgetPricing: {response.status_code}")
+                    print(f"   URL (tronquée): {full_url[:200]}...")
+                    print(f"   Réponse: {response.text[:300]}\n")
+                    self._pricing_debug_shown = True
+
+            # En cas d'erreur, retourner None
+            return {"min_bid": None, "max_bid": None, "suggested_bid": None}
+
+        except Exception as e:
+            # Debug: afficher l'erreur pour la première campagne
+            if not hasattr(self, '_pricing_error_shown'):
+                print(f"\n⚠️  Exception adBudgetPricing: {str(e)[:200]}\n")
+                self._pricing_error_shown = True
+            return {"min_bid": None, "max_bid": None, "suggested_bid": None}
+
+    def extract_budget_metrics(self, campaigns: List[Dict], pivot: str = "CAMPAIGN",
+                              budget_spent_map: Optional[Dict[str, float]] = None,
+                              campaigns_map: Optional[Dict[str, Dict]] = None) -> List[Dict]:
         """
         Extrait les métriques de budget et bidding des campagnes ou creatives
 
         Args:
             campaigns: Liste des campagnes ou creatives de l'API
             pivot: Type de données ("CAMPAIGN" ou "CREATIVE")
+            budget_spent_map: Dictionnaire campaign_id -> budget_spent (optionnel)
+            campaigns_map: Dictionnaire campaign_id -> campaign_data (pour CREATIVE pivot, optionnel)
 
         Returns:
             list: Liste de dictionnaires avec les métriques de budget
         """
         results = []
+
+        # Si budget_spent_map n'est pas fourni, créer un dict vide
+        if budget_spent_map is None:
+            budget_spent_map = {}
+
+        # Si campaigns_map n'est pas fourni, créer un dict vide
+        if campaigns_map is None:
+            campaigns_map = {}
 
         for item in campaigns:
             # Données communes
@@ -155,59 +309,87 @@ class LinkedInBudgetClient:
                 campaign_urn = item.get("_campaign_urn", "")
                 campaign_id = item.get("_campaign_id", "")
 
-            # Extraire les données de budget
-            total_budget = item.get("totalBudget", {}).get("amount") if item.get("totalBudget") else None
-            daily_budget_obj = item.get("dailyBudget", {})
+            # Pour CREATIVE pivot, récupérer les données depuis la campagne parent
+            if pivot == "CREATIVE" and campaign_id in campaigns_map:
+                parent_campaign = campaigns_map[campaign_id]
+                # Utiliser les données de la campagne parent
+                source_item = parent_campaign
+            else:
+                # Pour CAMPAIGN pivot, utiliser l'item directement
+                source_item = item
+
+            # Extraire les données de budget (depuis source_item)
+            total_budget = source_item.get("totalBudget", {}).get("amount") if source_item.get("totalBudget") else None
+            daily_budget_obj = source_item.get("dailyBudget", {})
             daily_budget = daily_budget_obj.get("amount") if daily_budget_obj else None
 
             # Lifetime budget (certaines campagnes utilisent ce champ)
             lifetime_budget = None
-            if item.get("runSchedule"):
-                run_schedule = item.get("runSchedule", {})
+            if source_item.get("runSchedule"):
+                run_schedule = source_item.get("runSchedule", {})
                 if run_schedule.get("totalBudget"):
                     lifetime_budget = run_schedule.get("totalBudget", {}).get("amount")
 
-            # Budget spent et remaining (calculés via analytics, on les laisse NULL pour l'instant)
-            budget_spent = None
+            # Budget spent (depuis analytics BigQuery)
+            budget_spent = budget_spent_map.get(campaign_id, None)
+
+            # Budget remaining (calculé à partir du budget total/lifetime et du budget dépensé)
             budget_remaining = None
+            if budget_spent is not None:
+                # Utiliser lifetime_budget en priorité, sinon total_budget
+                budget_limit = None
+                if lifetime_budget:
+                    budget_limit = float(lifetime_budget)
+                elif total_budget:
+                    budget_limit = float(total_budget)
 
-            # Currency
+                if budget_limit:
+                    budget_remaining = budget_limit - budget_spent
+                    # Ne pas avoir de valeur négative
+                    if budget_remaining < 0:
+                        budget_remaining = 0
+
+            # Currency (depuis source_item)
             billing_currency = None
-            if item.get("totalBudget"):
-                billing_currency = item.get("totalBudget", {}).get("currencyCode")
-            elif item.get("dailyBudget"):
-                billing_currency = item.get("dailyBudget", {}).get("currencyCode")
+            if source_item.get("totalBudget"):
+                billing_currency = source_item.get("totalBudget", {}).get("currencyCode")
+            elif source_item.get("dailyBudget"):
+                billing_currency = source_item.get("dailyBudget", {}).get("currencyCode")
 
-            # Bid information
-            unit_cost = item.get("unitCost", {})
-            bid_type = item.get("costType")  # CPC, CPM, etc.
+            # Bid information (depuis source_item)
+            unit_cost = source_item.get("unitCost", {})
+            bid_type = source_item.get("costType")  # CPC, CPM, etc.
             bid_amount = unit_cost.get("amount") if unit_cost else None
             bid_currency = unit_cost.get("currencyCode") if unit_cost else None
 
             # Bid adjustments
             bid_multiplier = None
             bid_adjustment_type = None
-            if item.get("targeting"):
-                targeting = item.get("targeting", {})
+            if source_item.get("targeting"):
+                targeting = source_item.get("targeting", {})
                 # LinkedIn peut avoir des bid adjustments dans le targeting
                 # (cette structure peut varier selon l'API)
 
-            # Min/Max bid (si disponible dans optimizationTargetType ou autres champs)
+            # Min/Max bid via API adBudgetPricing (seulement pour CAMPAIGN pivot)
             min_bid = None
             max_bid = None
+            if pivot == "CAMPAIGN":
+                pricing = self.get_budget_pricing(source_item)
+                min_bid = pricing.get("min_bid")
+                max_bid = pricing.get("max_bid")
 
-            # Pacing
+            # Pacing (depuis source_item)
             pacing_type = None
             pacing_rate = None
-            if item.get("runSchedule"):
-                run_schedule = item.get("runSchedule", {})
+            if source_item.get("runSchedule"):
+                run_schedule = source_item.get("runSchedule", {})
                 pacing_type = run_schedule.get("pacing")  # STANDARD, ACCELERATED
 
-            # Dates
+            # Dates (depuis source_item)
             start_date = None
             end_date = None
-            if item.get("runSchedule"):
-                run_schedule = item.get("runSchedule", {})
+            if source_item.get("runSchedule"):
+                run_schedule = source_item.get("runSchedule", {})
                 if run_schedule.get("start"):
                     start_ts = run_schedule.get("start")
                     start_date = datetime.fromtimestamp(start_ts / 1000).date()
@@ -434,15 +616,25 @@ def main():
         print(f"✗ Erreur: {e}")
         return
 
-    # Étape 2: Extraire les métriques de budget pour les CAMPAIGNS
+    # Étape 2: Calculer budget_spent depuis BigQuery
     print("=" * 70)
-    print("2. Extraction des métriques de budget")
+    print("2. Calcul du budget dépensé depuis analytics")
+    print("=" * 70)
+
+    print("\n→ Récupération des coûts depuis campaign_analytics...")
+    budget_spent_map = client.calculate_budget_spent_from_analytics()
+    print(f"✓ Budget calculé pour {len(budget_spent_map)} campagne(s)\n")
+
+    # Étape 3: Extraire les métriques de budget pour les CAMPAIGNS
+    print("=" * 70)
+    print("3. Extraction des métriques de budget et pricing")
     print("=" * 70)
 
     try:
-        # PARTIE 1: Budget des CAMPAIGNS
-        print("\n→ Extraction budget par CAMPAIGN...")
-        budget_campaigns = client.extract_budget_metrics(campaigns, pivot="CAMPAIGN")
+        # PARTIE 1: Budget des CAMPAIGNS (avec pricing API et budget_spent)
+        print("\n→ Extraction budget par CAMPAIGN (avec min/max bid depuis API)...")
+        print("   ⏳ Cela peut prendre du temps (appel API adBudgetPricing pour chaque campagne)...\n")
+        budget_campaigns = client.extract_budget_metrics(campaigns, pivot="CAMPAIGN", budget_spent_map=budget_spent_map)
         print(f"✓ {len(budget_campaigns)} campagnes traitées\n")
 
         # Afficher un résumé
@@ -467,12 +659,20 @@ def main():
 
         # PARTIE 2: Budget des CREATIVES
         print("\n→ Récupération des creatives...")
-        creatives = client.get_creatives(campaign_urns[:10])  # Limiter à 10 campagnes pour le test
+        creatives = client.get_creatives(campaign_urns)
         print(f"✓ {len(creatives)} creatives trouvées\n")
 
         if creatives:
-            print("\n→ Extraction budget par CREATIVE...")
-            budget_creatives = client.extract_budget_metrics(creatives, pivot="CREATIVE")
+            # Créer un mapping campaign_id -> campaign_data pour hériter des budgets
+            campaigns_map = {str(c.get('id')): c for c in campaigns}
+
+            print("\n→ Extraction budget par CREATIVE (héritage depuis campagnes)...")
+            budget_creatives = client.extract_budget_metrics(
+                creatives,
+                pivot="CREATIVE",
+                budget_spent_map=budget_spent_map,
+                campaigns_map=campaigns_map
+            )
             print(f"✓ {len(budget_creatives)} creatives traitées\n")
 
             # Exporter
