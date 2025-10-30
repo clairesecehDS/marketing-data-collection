@@ -64,8 +64,6 @@ CREATE TABLE IF NOT EXISTS `project-id.linkedin_ads_advertising.creative_analyti
   -- Identifiants
   creative_id STRING NOT NULL OPTIONS(description="ID de la creative LinkedIn"),
   creative_urn STRING OPTIONS(description="URN complet de la creative (ex: urn:li:sponsoredCreative:123456)"),
-  campaign_id STRING OPTIONS(description="ID de la campagne parente"),
-  campaign_urn STRING OPTIONS(description="URN de la campagne parente"),
 
   -- Période de reporting
   date_range_start DATE OPTIONS(description="Date de début de la période analysée"),
@@ -108,7 +106,7 @@ CREATE TABLE IF NOT EXISTS `project-id.linkedin_ads_advertising.creative_analyti
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP() OPTIONS(description="Date de dernière mise à jour de la ligne")
 )
 PARTITION BY DATE(retrieved_at)
-CLUSTER BY campaign_id, creative_id, date_range_start
+CLUSTER BY creative_id, date_range_start
 OPTIONS(
   description="Métriques des publicités (creatives) LinkedIn détaillées par ad individuel. Données récupérées via LinkedIn Marketing API avec pivot=CREATIVE.",
   labels=[("source", "linkedin_marketing_api"), ("data_type", "creative_metrics"), ("pivot", "creative")]
@@ -171,33 +169,25 @@ WHERE DATE(retrieved_at) = (
 ORDER BY cost_in_usd DESC;
 
 
--- Vue 2: Top performing creatives par campagne
-CREATE OR REPLACE VIEW `project-id.linkedin_ads_advertising.v_top_creatives_by_campaign` AS
-WITH ranked_creatives AS (
-  SELECT
-    campaign_id,
-    creative_id,
-    creative_urn,
-    impressions,
-    clicks,
-    cost_in_usd,
-    ctr,
-    engagement_rate,
-    total_engagements,
-    ROW_NUMBER() OVER (
-      PARTITION BY campaign_id
-      ORDER BY engagement_rate DESC, ctr DESC
-    ) as rank_in_campaign
+-- Vue 2: Top performing creatives
+CREATE OR REPLACE VIEW `project-id.linkedin_ads_advertising.v_top_creatives` AS
+SELECT
+  creative_id,
+  creative_urn,
+  impressions,
+  clicks,
+  cost_in_usd,
+  ctr,
+  engagement_rate,
+  total_engagements
+FROM `project-id.linkedin_ads_advertising.creative_analytics`
+WHERE DATE(retrieved_at) = (
+  SELECT MAX(DATE(retrieved_at))
   FROM `project-id.linkedin_ads_advertising.creative_analytics`
-  WHERE DATE(retrieved_at) = (
-    SELECT MAX(DATE(retrieved_at))
-    FROM `project-id.linkedin_ads_advertising.creative_analytics`
-  )
-  AND impressions >= 100  -- Filtrer les creatives avec volume significatif
 )
-SELECT *
-FROM ranked_creatives
-WHERE rank_in_campaign <= 10;  -- Top 10 par campagne
+AND impressions >= 100  -- Filtrer les creatives avec volume significatif
+ORDER BY engagement_rate DESC, ctr DESC
+LIMIT 50;
 
 
 -- Vue 3: Performance globale (toutes campagnes agrégées)
@@ -221,55 +211,6 @@ GROUP BY report_date
 ORDER BY report_date DESC;
 
 
--- Vue 4: Comparaison campagne vs somme des creatives
-CREATE OR REPLACE VIEW `project-id.linkedin_ads_advertising.v_campaign_creative_reconciliation` AS
-WITH campaign_totals AS (
-  SELECT
-    campaign_id,
-    SUM(impressions) as campaign_impressions,
-    SUM(clicks) as campaign_clicks,
-    SUM(cost_in_usd) as campaign_cost,
-    MAX(DATE(retrieved_at)) as campaign_date
-  FROM `project-id.linkedin_ads_advertising.campaign_analytics`
-  WHERE DATE(retrieved_at) = (
-    SELECT MAX(DATE(retrieved_at))
-    FROM `project-id.linkedin_ads_advertising.campaign_analytics`
-  )
-  GROUP BY campaign_id
-),
-creative_totals AS (
-  SELECT
-    campaign_id,
-    COUNT(DISTINCT creative_id) as num_creatives,
-    SUM(impressions) as creative_impressions_sum,
-    SUM(clicks) as creative_clicks_sum,
-    SUM(cost_in_usd) as creative_cost_sum,
-    MAX(DATE(retrieved_at)) as creative_date
-  FROM `project-id.linkedin_ads_advertising.creative_analytics`
-  WHERE DATE(retrieved_at) = (
-    SELECT MAX(DATE(retrieved_at))
-    FROM `project-id.linkedin_ads_advertising.creative_analytics`
-  )
-  GROUP BY campaign_id
-)
-SELECT
-  c.campaign_id,
-  c.campaign_impressions,
-  cr.creative_impressions_sum,
-  c.campaign_clicks,
-  cr.creative_clicks_sum,
-  c.campaign_cost,
-  cr.creative_cost_sum,
-  cr.num_creatives,
-  -- Métriques moyennes par creative
-  SAFE_DIVIDE(cr.creative_impressions_sum, cr.num_creatives) as avg_impressions_per_creative,
-  SAFE_DIVIDE(cr.creative_cost_sum, cr.num_creatives) as avg_cost_per_creative,
-  -- Vérification de cohérence
-  ABS(c.campaign_impressions - IFNULL(cr.creative_impressions_sum, 0)) as impressions_diff,
-  ABS(c.campaign_cost - IFNULL(cr.creative_cost_sum, 0)) as cost_diff
-FROM campaign_totals c
-LEFT JOIN creative_totals cr ON c.campaign_id = cr.campaign_id
-ORDER BY c.campaign_cost DESC;
 
 
 -- ============================================================================
@@ -312,7 +253,6 @@ ORDER BY date DESC;
 /*
 SELECT
   creative_id,
-  campaign_id,
   impressions,
   clicks,
   ctr,
@@ -333,7 +273,6 @@ LIMIT 50;
 /*
 SELECT
   creative_id,
-  campaign_id,
   impressions,
   clicks,
   cost_in_usd,
