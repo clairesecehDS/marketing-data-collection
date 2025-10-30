@@ -49,16 +49,34 @@ class ClarityAnalyticsClient:
 
         return response.json()
 
+    def _format_markdown_table(self, info_list: List[Dict], col1_name: str, col2_name: str = "Sessions") -> str:
+        """
+        Formate une liste d'informations en tableau Markdown
+        """
+        if not info_list:
+            return None
+
+        lines = [f"{col1_name} | {col2_name}", "--- | ---"]
+
+        for item in info_list:
+            # Adapter selon le type de métrique
+            name = item.get("name") or item.get("url") or item.get("title") or "Unknown"
+            count = item.get("sessionsCount") or item.get("visitsCount") or item.get("count") or "0"
+            lines.append(f"{name} | {count}")
+
+        return "\n".join(lines)
+
     def parse_to_official_format(self, data) -> List[Dict]:
         """
         Parse les données API Clarity (format metricName/information)
         API returns a list of metrics with metricName and information fields
         """
         current_time = datetime.now()
+        date_str = current_time.strftime("%Y-%m-%d")
 
         consolidated = {
             "date": current_time,
-            "name": None,
+            "name": f"Clarity Data - {date_str}",
             "url": None,
             "page_titles": None,
             "popular_pages": None,
@@ -109,18 +127,21 @@ class ClarityAnalyticsClient:
                 elif metric_name == "EngagementTime":
                     consolidated["avg_engagement_time"] = float(info.get("averageEngagementTime", 0)) if info.get("averageEngagementTime") else 0.0
                 elif metric_name == "PopularPages":
-                    # information peut contenir plusieurs pages, on les stocke toutes
-                    consolidated["popular_pages"] = json.dumps(info_list) if info_list else None
+                    consolidated["popular_pages"] = self._format_markdown_table(info_list, "Page")
                 elif metric_name == "PageViews":
                     consolidated["page_views"] = int(info.get("totalPageViews", 0)) if info.get("totalPageViews") else 0
+                elif metric_name == "PageTitles":
+                    consolidated["page_titles"] = self._format_markdown_table(info_list, "Name")
+                elif metric_name == "ReferrerUrls":
+                    consolidated["referrer_urls"] = self._format_markdown_table(info_list, "URL")
                 elif metric_name == "Browser":
-                    consolidated["browser_breakdown"] = json.dumps(info_list) if info_list else None
+                    consolidated["browser_breakdown"] = self._format_markdown_table(info_list, "Browser")
                 elif metric_name == "Device":
-                    consolidated["device_breakdown"] = json.dumps(info_list) if info_list else None
+                    consolidated["device_breakdown"] = self._format_markdown_table(info_list, "Device")
                 elif metric_name == "OS":
-                    consolidated["os_breakdown"] = json.dumps(info_list) if info_list else None
+                    consolidated["os_breakdown"] = self._format_markdown_table(info_list, "OS")
                 elif metric_name == "Geography":
-                    consolidated["user_geography"] = json.dumps(info_list) if info_list else None
+                    consolidated["user_geography"] = self._format_markdown_table(info_list, "Country")
 
         return [consolidated]
 
@@ -206,7 +227,7 @@ def main():
     NUM_OF_DAYS = clarity_config['num_of_days']
 
     BQ_PROJECT_ID = google_config['project_id']
-    DATASET_ID = google_config['datasets']['clarity']
+    DATASET_ID = google_config['datasets']['microsoft_clarity']
     CREDENTIALS_PATH = google_config['credentials_file']
 
     print("=" * 70)
