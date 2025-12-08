@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""
+SpyFu Domain Ad History Collector
+Récupère l'historique des annonces publicitaires pour une liste de domaines
+"""
+
+import os
+import sys
+import json
+import requests
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional
+import pandas as pd
+import pandas_gbq
+from google.oauth2 import service_account
+
+# Ajouter le répertoire parent au path pour importer config_loader
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+from config_loader import load_config
+
+
+class SpyFuDomainAdHistoryCollector:
+    """Collecteur d'historique des annonces depuis l'API SpyFu"""
+
+    BASE_URL = "https://api.spyfu.com/apis/cloud_ad_history_api/v2/domain"
+
+    def __init__(self, api_key: str):
+        """
+        Initialise le collecteur SpyFu
+
+        Args:
+            api_key: Clé API SpyFu (Secret Key)
+        """
+        self.api_key = api_key
+        self.session = requests.Session()
+
+    def get_domain_ad_history(
+        self,
+        domain: str,
+        country_code: str = "US",
+        rowcount: int = 23,
+        min_date: Optional[str] = None,
+        max_date: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Récupère l'historique des annonces pour un domaine
+
+        Args:
+            domain: Domaine à analyser
+            country_code: Code pays (US, FR, GB, etc.)
+            rowcount: Nombre de résultats (max 23 selon budget)
+            min_date: Date minimale (format YYYY-MM-DD)
+            max_date: Date maximale (format YYYY-MM-DD)
+
+        Returns:
+            Liste des annonces avec leurs métriques
+        """
+        endpoint = f"{self.BASE_URL}/getDomainAdHistory"
+
+        # Par défaut: 3 derniers mois si non spécifié
+        if not max_date:
+            max_date = datetime.now().strftime("%Y-%m-%d")
+        if not min_date:
+            min_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+
+        params = {
+            "domain": domain,
+            "countryCode": country_code,
+            "rowcount": rowcount,
+            "minDate": min_date,
+            "maxDate": max_date,
+            "api_key": self.api_key
+        }
+
+        headers = {
+            "Accept": "application/json"
+        }
+
+        try:
+            print(f"📜 Récupération de l'historique des annonces pour {domain} ({min_date} à {max_date})...")
+            response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
+            response.raise_for_status()
+
+            data = response.json()
+            ads = data.get("results", [])
+
+            print(f"✓ {len(ads)} annonces récupérées pour {domain}")
+            return ads
+
+        except requests.exceptions.RequestException as e:
+            print(f"✗ Erreur API pour {domain}: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"  Détails: {e.response.text}")
+            return []
+
+    def parse_ad_data(self, ad_data: Dict, domain: str, country_code: str) -> Dict:
+        """
+        Parse les données d'une annonce au format BigQuery
+
+        Args:
+            ad_data: Données brutes de l'annonce depuis l'API
+            domain: Domaine analysé
+            country_code: Code pays
+
+        Returns:
+            Dictionnaire formaté pour BigQuery
+        """
+        # Convertir searchDateId en date (format YYYYMMDD)
+        search_date_id = ad_data.get("searchDateId")
+        first_seen = None
+        if search_date_id:
+            try:
+                date_str = str(search_date_id)
+                first_seen = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+            except:
+                pass
+        
+        # Extraire le premier keyword de la liste (pour compatibilité avec le schéma)
+        keywords_list = ad_data.get("keywords", [])
+        keyword = keywords_list[0] if keywords_list else None
+        
+        return {
+            # Identifiants
+            "domain": domain,
+            "ad_id": str(ad_data.get("adId")) if ad_data.get("adId") else None,
+            "keyword": keyword,
+
+            # Contenu de l'annonce (l'API utilise title/body au lieu de headline/description)
+            "headline": ad_data.get("title"),
+            "description": ad_data.get("body"),
+            "display_url": None,  # Pas retourné par cette API
+            "destination_url": ad_data.get("url"),
+
+            # Métriques temporelles
+            "first_seen_date": first_seen,
+            "last_seen_date": first_seen,  # L'API ne fournit qu'une date
+            "days_seen": None,  # Pas retourné par cette API
+
+            # Métriques de performance
+            "search_volume": None,  # Pas retourné par cette API
+            "cost_per_click": None,  # Pas retourné par cette API
+            "monthly_cost": None,  # Pas retourné par cette API
+            "position": ad_data.get("position"),
+
+            # Métadonnées
+            "country_code": country_code,
+            "retrieved_at": datetime.now()
+        }
+
+    def collect_all_domains(
+        self,
+        domains: List[str],
+        country_code: str = "US",
+        rowcount: int = 23,
+        min_date: Optional[str] = None,
+        max_date: Optional[str] = None
+    ) -> List[Dict]:
+        """
+        Collecte les données pour tous les domaines
+
+        Args:
+            domains: Liste des domaines à analyser
+            country_code: Code pays
+            rowcount: Nombre de résultats par domaine
+            min_date: Date minimale
+            max_date: Date maximale
+
+        Returns:
+            Liste de toutes les annonces formatées
+        """
+        if not domains:
+            raise ValueError("La liste de domaines ne peut pas être vide")
+
+        all_ads = []
+
+        for domain in domains:
+            raw_ads = self.get_domain_ad_history(
+                domain=domain,
+                country_code=country_code,
+                rowcount=rowcount,
+                min_date=min_date,
+                max_date=max_date
+            )
+
+            for ad in raw_ads:
+                parsed = self.parse_ad_data(ad, domain, country_code)
+                all_ads.append(parsed)
+
+        return all_ads
+
+    def export_to_json(self, data: List[Dict], filename: str):
+        """Exporte les données en JSON"""
+        if not data:
+            print(f"⚠️  Aucune donnée à exporter")
+            return
+
+        # Skip export en Cloud Functions
+        if os.getenv('FUNCTION_TARGET'):
+            return
+
+        filepath = f"../data/{filename}"
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, default=str)
+
+    def load_from_json(self, filename: str) -> List[Dict]:
+        """Charge les données depuis un fichier JSON"""
+        filepath = f"../data/{filename}"
+
+        if not os.path.exists(filepath):
+            print(f"✗ Fichier non trouvé: {filepath}")
+            return []
+
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        print(f"✓ {len(data)} lignes chargées depuis {filepath}")
+        return data
+
+    def upload_to_bigquery(
+        self,
+        data: List[Dict],
+        project_id: str,
+        dataset_id: str = "spyfu",
+        table_id: str = "domain_ad_history",
+        credentials_path: str = "../../account-key.json"
+    ):
+        """Upload les données vers BigQuery"""
+        if not data:
+            print(f"⚠️  Aucune donnée à uploader")
+            return
+
+        try:
+            # Préparer les credentials
+            if os.getenv('FUNCTION_TARGET'):
+                credentials = None
+            elif credentials_path and os.path.exists(credentials_path):
+                credentials = service_account.Credentials.from_service_account_file(
+                    credentials_path,
+                    scopes=["https://www.googleapis.com/auth/bigquery"]
+                )
+            else:
+                credentials = None
+
+            # Convertir en DataFrame
+            df = pd.DataFrame(data)
+
+            # Filtrer les lignes avec domain NULL
+            initial_count = len(df)
+            df = df.dropna(subset=['domain'])
+            filtered_count = initial_count - len(df)
+
+            if filtered_count > 0:
+                print(f"⚠️  {filtered_count} ligne(s) filtrée(s) (champ domain null)")
+
+            if len(df) == 0:
+                print(f"⚠️  Aucune donnée valide à uploader après filtrage")
+                return
+
+            # Conversion des types pour BigQuery
+            for col in df.columns:
+                if df[col].dtype == 'object' and col not in ['first_seen_date', 'last_seen_date']:
+                    try:
+                        df[col] = pd.to_numeric(df[col])
+                    except (ValueError, TypeError):
+                        df[col] = df[col].astype(str)
+                        df[col] = df[col].replace('None', None)
+
+            # Gérer les colonnes datetime
+            date_columns = ['retrieved_at', 'first_seen_date', 'last_seen_date']
+            for col in date_columns:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], utc=True, errors='coerce')
+
+            table_full_id = f"{project_id}.{dataset_id}.{table_id}"
+
+            print(f"📤 Upload de {len(df)} lignes vers {table_full_id}...")
+
+            pandas_gbq.to_gbq(
+                df,
+                destination_table=f"{dataset_id}.{table_id}",
+                project_id=project_id,
+                credentials=credentials,
+                if_exists='append',
+                progress_bar=False
+            )
+
+            print(f"✓ Upload réussi vers BigQuery")
+
+        except Exception as e:
+            print(f"✗ Erreur lors de l'upload BigQuery: {e}")
+            import traceback
+            traceback.print_exc()
+
+
+def main():
+    """Point d'entrée principal"""
+
+    # Charger la configuration
+    is_cloud_function = os.getenv('FUNCTION_TARGET') is not None
+    config = load_config(skip_credentials_check=is_cloud_function)
+
+    # Récupérer les configurations
+    spyfu_config = config.get_spyfu_config()
+    google_config = config.get_google_cloud_config()
+
+    API_KEY = spyfu_config['api_key']
+    PROJECT_ID = google_config['project_id']
+    DATASET_ID = google_config['datasets']['spyfu']
+    CREDENTIALS_PATH = google_config['credentials_file']
+    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
+
+    # Paramètres depuis le fichier .odt
+    ROWCOUNT = 23  # Selon le document .odt
+
+    # Dates: 3 derniers mois par défaut
+    MAX_DATE = datetime.now().strftime("%Y-%m-%d")
+    MIN_DATE = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+
+    # Mode: "collect" ou "upload"
+    mode = sys.argv[1] if len(sys.argv) > 1 else "collect"
+
+    if mode == "upload":
+        if len(sys.argv) < 3:
+            print("Usage: python spyfu_domain_ad_history.py upload <json_filename>")
+            sys.exit(1)
+
+        json_filename = sys.argv[2]
+        print("SpyFu Domain Ad History - Upload depuis JSON")
+
+        collector = SpyFuDomainAdHistoryCollector(api_key=API_KEY)
+        ads_data = collector.load_from_json(json_filename)
+
+        if ads_data:
+            collector.upload_to_bigquery(
+                data=ads_data,
+                project_id=PROJECT_ID,
+                dataset_id=DATASET_ID,
+                credentials_path=CREDENTIALS_PATH
+            )
+            print("\n✓ Upload terminé")
+        else:
+            print("\n✗ Aucune donnée à uploader")
+
+    else:
+        # Mode collection normal
+        DOMAINS = spyfu_config['domains']['all']
+
+        print(f"SpyFu Domain Ad History Collection")
+        print(f"📍 Pays: {COUNTRY_CODE}")
+        print(f"🌐 Domaines: {', '.join(DOMAINS)}")
+        print(f"📊 Rowcount: {ROWCOUNT} par domaine")
+        print(f"📅 Période: {MIN_DATE} à {MAX_DATE}")
+
+        # Initialiser le collecteur
+        collector = SpyFuDomainAdHistoryCollector(api_key=API_KEY)
+
+        # Collecter les données
+        ads_data = collector.collect_all_domains(
+            domains=DOMAINS,
+            country_code=COUNTRY_CODE,
+            rowcount=ROWCOUNT,
+            min_date=MIN_DATE,
+            max_date=MAX_DATE
+        )
+
+        print(f"\n✓ Total: {len(ads_data)} annonces collectées")
+
+        # Exporter en JSON
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        json_filename = f"spyfu_domain_ad_history_{timestamp}.json"
+        collector.export_to_json(ads_data, json_filename)
+        print(f"✓ Données sauvegardées: ../data/{json_filename}")
+
+        # Upload vers BigQuery
+        print("\n📤 Upload vers BigQuery...")
+        collector.upload_to_bigquery(
+            data=ads_data,
+            project_id=PROJECT_ID,
+            dataset_id=DATASET_ID,
+            credentials_path=CREDENTIALS_PATH
+        )
+        print("\n✓ Collection et upload terminés")
+
+
+if __name__ == "__main__":
+    main()

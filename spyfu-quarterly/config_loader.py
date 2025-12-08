@@ -49,8 +49,6 @@ class ConfigLoader:
         with open(self.config_path, 'r', encoding='utf-8') as f:
             self.config = yaml.safe_load(f)
 
-        print(f"✓ Configuration chargée depuis {self.config_path}")
-
     def get(self, path: str, default: Any = None) -> Any:
         """
         Récupère une valeur de configuration par son chemin
@@ -137,23 +135,28 @@ class ConfigLoader:
 
     def get_spyfu_config(self) -> Dict[str, Any]:
         """Récupère la configuration SpyFu"""
-        # Support de l'ancienne et nouvelle structure pour country_code
-        country_code = self.get('spyfu.country_code') or self.get('spyfu.global.country_code', 'US')
-
         return {
             'api_key': self.get('spyfu.api_key'),
-            'country_code': country_code,
+            'country_code': self.get('spyfu.global.country_code', 'FR'),
+            'page_size': self.get('spyfu.global.page_size', 1000),
             'domains': {
                 'primary': self.get('spyfu.domains.primary'),
                 'competitors': self.get('spyfu.domains.competitors', []),
-                # Construction automatique de 'all' : primary + competitors
-                'all': self.get('spyfu.domains.all') or
-                       ([self.get('spyfu.domains.primary')] + self.get('spyfu.domains.competitors', []))
+                'all': [self.get('spyfu.domains.primary')] +
+                       self.get('spyfu.domains.competitors', [])
             },
-            'keywords': self.get('spyfu.keywords', []),
             'comparisons': self.get('spyfu.comparisons', []),
             'filters': self.get('spyfu.filters', {}),
-            'endpoints': self.get('spyfu.endpoints', {})
+            'endpoints': {
+                'ppc_keywords': self.get('spyfu.ppc_keywords', {}),
+                'new_keywords': self.get('spyfu.new_keywords', {}),
+                'paid_serps': self.get('spyfu.paid_serps', {}),
+                'seo_keywords': self.get('spyfu.seo_keywords', {}),
+                'newly_ranked': self.get('spyfu.newly_ranked', {}),
+                'outrank_comparison': self.get('spyfu.outrank_comparison', {}),
+                'top_pages': self.get('spyfu.top_pages', {}),
+                'ppc_competitors': self.get('spyfu.ppc_competitors', {}),
+            }
         }
 
     def get_automation_config(self) -> Dict[str, Any]:
@@ -240,16 +243,14 @@ class ConfigLoader:
         if not self.get('spyfu.domains.primary'):
             errors.append("⚠️  spyfu.domains.primary manquant")
 
-        # Afficher les erreurs
+        # Afficher seulement les erreurs critiques
         if errors:
-            print("\n🔧 Validation de la configuration :")
-            for error in errors:
-                print(f"  {error}")
-            print()
-
-            # Seulement les erreurs critiques empêchent l'exécution
             critical_errors = [e for e in errors if e.startswith("❌")]
             if critical_errors:
+                print("\n🔧 Validation de la configuration :")
+                for error in critical_errors:
+                    print(f"  {error}")
+                print()
                 return False
 
         return True
@@ -308,7 +309,7 @@ def load_config(config_path: str = "config.yaml", skip_credentials_check: bool =
     try:
         config = ConfigLoader(config_path)
 
-        if not config.validate():
+        if not config.validate(skip_credentials_check=skip_credentials_check):
             print("\n❌ Configuration invalide. Veuillez corriger les erreurs ci-dessus.")
             raise SystemExit(1)
 

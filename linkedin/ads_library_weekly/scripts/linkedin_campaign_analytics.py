@@ -179,13 +179,6 @@ class LinkedInCampaignAnalytics:
             # Construire l'URL complète sans utiliser params
             query_params = f"q=analytics&pivot={pivot}&dateRange={date_range_str}&timeGranularity={time_granularity}&campaigns={campaigns_str}{fields_str}"
             full_url = f"{url}?{query_params}"
-            
-            # Log de la requête pour diagnostic
-            if idx == 1:  # Afficher seulement pour la première campagne pour ne pas surcharger les logs
-                print(f"\n🔍 DEBUG - Première requête API:")
-                print(f"   Pivot: {pivot}")
-                print(f"   Fields demandés: {fields if fields else 'TOUS (aucun field spécifié)'}")
-                print(f"   URL (tronquée): {full_url[:150]}...")
 
             # Retry logic avec backoff pour gérer le rate limiting
             max_retries = 3
@@ -216,24 +209,7 @@ class LinkedInCampaignAnalytics:
                         elements = campaign_data.get("elements", [])
 
                         if elements:
-                            # Log détaillé des données reçues pour diagnostic
-                            print(f"  [{idx}/{total_campaigns}] ✓ {len(elements)} élément(s) reçu(s) pour {campaign_urn}")
-                            
-                            # Log des métriques d'engagement du premier élément pour diagnostic
-                            if elements and len(elements) > 0:
-                                first_elem = elements[0]
-                                reactions = first_elem.get("reactions", "ABSENT")
-                                comments = first_elem.get("comments", "ABSENT")
-                                shares = first_elem.get("shares", "ABSENT")
-                                impressions = first_elem.get("impressions", "ABSENT")
-                                clicks = first_elem.get("clicks", "ABSENT")
-                                
-                                print(f"  ├─ Métriques engagement: reactions={reactions}, comments={comments}, shares={shares}")
-                                print(f"  └─ Métriques base: impressions={impressions}, clicks={clicks}")
-                            
                             all_elements.extend(elements)
-                        else:
-                            print(f"  [{idx}/{total_campaigns}] ⚠️  Aucun élément reçu pour {campaign_urn}")
                         break  # Succès, sortir de la boucle de retry
 
                     # Autre erreur, passer à la campagne suivante
@@ -252,34 +228,6 @@ class LinkedInCampaignAnalytics:
                 time.sleep(2)
 
         # Retourner un dict avec tous les éléments combinés
-        print(f"\n📊 STATISTIQUES DE COLLECTE:")
-        print(f"   Total éléments récupérés: {len(all_elements)}")
-        
-        # Compter combien d'éléments ont des métriques d'engagement
-        elements_with_engagement = 0
-        elements_with_reactions = 0
-        elements_with_comments = 0
-        elements_with_shares = 0
-        
-        for elem in all_elements:
-            reactions = elem.get("reactions", 0)
-            comments = elem.get("comments", 0)
-            shares = elem.get("shares", 0)
-            
-            if reactions > 0 or comments > 0 or shares > 0:
-                elements_with_engagement += 1
-            if reactions > 0:
-                elements_with_reactions += 1
-            if comments > 0:
-                elements_with_comments += 1
-            if shares > 0:
-                elements_with_shares += 1
-        
-        print(f"   Éléments avec engagement > 0: {elements_with_engagement}/{len(all_elements)}")
-        print(f"   Éléments avec reactions > 0: {elements_with_reactions}/{len(all_elements)}")
-        print(f"   Éléments avec comments > 0: {elements_with_comments}/{len(all_elements)}")
-        print(f"   Éléments avec shares > 0: {elements_with_shares}/{len(all_elements)}")
-        
         return {"elements": all_elements}
 
     def calculate_metrics(self, analytics_data: Dict) -> List[Dict]:
@@ -308,17 +256,6 @@ class LinkedInCampaignAnalytics:
             reactions = element.get("reactions", 0)
             comments = element.get("comments", 0)
             shares = element.get("shares", 0)
-            
-            # Log de diagnostic pour les métriques d'engagement à 0
-            if impressions > 0 and reactions == 0 and comments == 0 and shares == 0:
-                print(f"⚠️  DIAGNOSTIC - Element avec engagement à 0:")
-                print(f"   pivotValue: {pivot_value}")
-                print(f"   impressions: {impressions}, clicks: {clicks}")
-                print(f"   Clés disponibles dans element: {list(element.keys())}")
-                # Vérifier si les métriques sont présentes mais avec valeur None ou autre
-                print(f"   reactions (brut): {element.get('reactions', 'ABSENT')}")
-                print(f"   comments (brut): {element.get('comments', 'ABSENT')}")
-                print(f"   shares (brut): {element.get('shares', 'ABSENT')}")
 
             # Calculer les métriques dérivées
             ctr = (clicks / impressions * 100) if impressions > 0 else 0
@@ -411,7 +348,7 @@ class LinkedInCampaignAnalytics:
             query = f"""
                 SELECT COUNT(*) as count
                 FROM `{table_id}`
-                WHERE DATE(date_range_start) = '{date_str}'
+                WHERE DATE(dateRange_start) = '{date_str}'
             """
 
             result = client.query(query).result()
@@ -434,7 +371,7 @@ class LinkedInCampaignAnalytics:
             table_id = f"{self.project_id}.{self.dataset_id}.{table_name}"
 
             query = f"""
-                SELECT MAX(DATE(date_range_start)) as last_date
+                SELECT MAX(DATE(dateRange_start)) as last_date
                 FROM `{table_id}`
             """
 
@@ -746,27 +683,11 @@ def main():
         total_clicks = sum(m["clicks"] for m in metrics_campaign)
         total_cost = sum(m["costInUsd"] for m in metrics_campaign)
         total_engagements = sum(m["totalEngagements"] for m in metrics_campaign)
-        total_reactions = sum(m["reactions"] for m in metrics_campaign)
-        total_comments = sum(m["comments"] for m in metrics_campaign)
-        total_shares = sum(m["shares"] for m in metrics_campaign)
-        
-        # Compter combien de campagnes ont des engagements
-        campaigns_with_engagement = sum(1 for m in metrics_campaign if m["totalEngagements"] > 0)
-        campaigns_with_reactions = sum(1 for m in metrics_campaign if m["reactions"] > 0)
-        campaigns_with_comments = sum(1 for m in metrics_campaign if m["comments"] > 0)
-        campaigns_with_shares = sum(1 for m in metrics_campaign if m["shares"] > 0)
 
         print(f"Total Impressions: {total_impressions:,}")
         print(f"Total Clicks: {total_clicks:,}")
         print(f"Total Cost: ${total_cost:,.2f}")
         print(f"Total Engagements: {total_engagements:,}")
-        print(f"  ├─ Reactions: {total_reactions:,}")
-        print(f"  ├─ Comments: {total_comments:,}")
-        print(f"  └─ Shares: {total_shares:,}")
-        print(f"Campagnes avec engagement: {campaigns_with_engagement}/{len(metrics_campaign)}")
-        print(f"  ├─ avec reactions: {campaigns_with_reactions}/{len(metrics_campaign)}")
-        print(f"  ├─ avec comments: {campaigns_with_comments}/{len(metrics_campaign)}")
-        print(f"  └─ avec shares: {campaigns_with_shares}/{len(metrics_campaign)}")
         print(f"Average CTR: {(total_clicks/total_impressions*100):.2f}%" if total_impressions > 0 else "N/A")
         print(f"Average CPC: ${(total_cost/total_clicks):.2f}" if total_clicks > 0 else "N/A")
 
@@ -800,27 +721,11 @@ def main():
         total_clicks_cr = sum(m["clicks"] for m in metrics_creative)
         total_cost_cr = sum(m["costInUsd"] for m in metrics_creative)
         total_engagements_cr = sum(m["totalEngagements"] for m in metrics_creative)
-        total_reactions_cr = sum(m["reactions"] for m in metrics_creative)
-        total_comments_cr = sum(m["comments"] for m in metrics_creative)
-        total_shares_cr = sum(m["shares"] for m in metrics_creative)
-        
-        # Compter combien de creatives ont des engagements
-        creatives_with_engagement = sum(1 for m in metrics_creative if m["totalEngagements"] > 0)
-        creatives_with_reactions = sum(1 for m in metrics_creative if m["reactions"] > 0)
-        creatives_with_comments = sum(1 for m in metrics_creative if m["comments"] > 0)
-        creatives_with_shares = sum(1 for m in metrics_creative if m["shares"] > 0)
 
         print(f"Total Impressions: {total_impressions_cr:,}")
         print(f"Total Clicks: {total_clicks_cr:,}")
         print(f"Total Cost: ${total_cost_cr:,.2f}")
         print(f"Total Engagements: {total_engagements_cr:,}")
-        print(f"  ├─ Reactions: {total_reactions_cr:,}")
-        print(f"  ├─ Comments: {total_comments_cr:,}")
-        print(f"  └─ Shares: {total_shares_cr:,}")
-        print(f"Creatives avec engagement: {creatives_with_engagement}/{len(metrics_creative)}")
-        print(f"  ├─ avec reactions: {creatives_with_reactions}/{len(metrics_creative)}")
-        print(f"  ├─ avec comments: {creatives_with_comments}/{len(metrics_creative)}")
-        print(f"  └─ avec shares: {creatives_with_shares}/{len(metrics_creative)}")
         print(f"Average CTR: {(total_clicks_cr/total_impressions_cr*100):.2f}%" if total_impressions_cr > 0 else "N/A")
         print(f"Average CPC: ${(total_cost_cr/total_clicks_cr):.2f}" if total_clicks_cr > 0 else "N/A")
 

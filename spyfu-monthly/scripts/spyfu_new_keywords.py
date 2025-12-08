@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-SpyFu PPC Keywords Collector
-Récupère les mots-clés PPC les plus performants pour une liste de domaines
+SpyFu New Keywords Collector
+Récupère les nouveaux mots-clés PPC pour une liste de domaines
 """
 
 import os
@@ -13,24 +13,24 @@ from typing import List, Dict, Optional
 import pandas as pd
 import pandas_gbq
 from google.oauth2 import service_account
-
 # Ajouter le répertoire parent au path pour importer config_loader
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from config_loader import load_config
 
 
-class SpyFuPPCCollector:
-    """Collecteur de données PPC depuis l'API SpyFu"""
+
+class SpyFuNewKeywordsCollector:
+    """Collecteur de nouveaux mots-clés PPC depuis l'API SpyFu"""
 
     BASE_URL = "https://api.spyfu.com/apis/keyword_api/v2/ppc"
 
 
 
-    # Paramètres par défaut (rowcount limité à 20 selon budget)
+    # Paramètres par défaut (rowcount limité à 10 selon budget)
     DEFAULT_PARAMS = {
-        "countryCode": "US",
-        "pageSize": 20,
-        "startingRow": 0,
+        "countryCode": "FR",
+        "pageSize": 10,
+        "startingRow": 1,
         "sortBy": "SearchVolume",
         "sortOrder": "Descending"
     }
@@ -40,41 +40,46 @@ class SpyFuPPCCollector:
         Initialise le collecteur SpyFu
 
         Args:
-            api_key: Clé API SpyFu
+            api_key: Clé API SpyFu (Secret Key)
         """
         self.api_key = api_key
         self.session = requests.Session()
 
-    def get_most_successful_keywords(
+    def get_new_keywords(
         self,
         domain: str,
-        country_code: str = "US",
-        page_size: int = 20,
+        country_code: str = "FR",
+        page_size: int = 10,
         min_search_volume: Optional[int] = None,
-        max_cost_per_click: Optional[float] = None
+        max_cost_per_click: Optional[float] = None,
+        is_question: Optional[bool] = None,
+        is_transactional: Optional[bool] = None
     ) -> List[Dict]:
         """
-        Récupère les mots-clés PPC les plus performants pour un domaine
+        Récupère les nouveaux mots-clés PPC pour un domaine
 
         Args:
             domain: Domaine à analyser
-            country_code: Code pays (US, DE, GB, etc.)
-            page_size: Nombre de résultats par page (max 20 selon budget)
+            country_code: Code pays (US, DE, GB, FR, etc.)
+            page_size: Nombre de résultats par page (max 10 selon budget)
             min_search_volume: Volume de recherche minimum
             max_cost_per_click: CPC maximum
+            is_question: Filtrer sur les questions (True/False)
+            is_transactional: Filtrer sur l'intention transactionnelle
 
         Returns:
-            Liste des mots-clés avec leurs métriques
+            Liste des nouveaux mots-clés avec leurs métriques
         """
-        endpoint = f"{self.BASE_URL}/getMostSuccessful"
+        endpoint = f"{self.BASE_URL}/getNewKeywords"
 
         params = {
             "query": domain,
             "countryCode": country_code,
-            "pageSize": min(page_size, 20),  # Limité à 20 selon budget
-            "startingRow": 1,  # SpyFu commence à 1, pas 0
+            "pageSize": min(page_size, 10),  # Limité à 10 selon budget
+            "startingRow": 1,
             "sortBy": "SearchVolume",
-            "sortOrder": "Descending"
+            "sortOrder": "Descending",
+            "api_key": self.api_key
         }
 
         # Filtres optionnels
@@ -82,29 +87,29 @@ class SpyFuPPCCollector:
             params["searchVolume.min"] = min_search_volume
         if max_cost_per_click:
             params["costPerClick.max"] = max_cost_per_click
+        if is_question is not None:
+            params["isQuestion"] = str(is_question).lower()
+        if is_transactional is not None:
+            params["isTransactionalIntent"] = str(is_transactional).lower()
 
-        # SpyFu utilise Basic Auth avec la secret key
         headers = {
             "Accept": "application/json"
         }
 
-        # Authentification via params (format SpyFu)
-        params["api_key"] = self.api_key
-
         try:
-            print(f"📊 Récupération des keywords pour {domain}...")
+            print(f"🆕 Récupération des nouveaux keywords pour {domain}...")
             response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
             response.raise_for_status()
 
             data = response.json()
             keywords = data.get("results", [])
 
-            print(f"✓ {len(keywords)} keywords récupérés pour {domain}")
+            print(f"✓ {len(keywords)} nouveaux keywords récupérés pour {domain}")
             return keywords
 
         except requests.exceptions.RequestException as e:
             print(f"✗ Erreur API pour {domain}: {e}")
-            if hasattr(e.response, 'text'):
+            if hasattr(e, 'response') and e.response is not None:
                 print(f"  Détails: {e.response.text}")
             return []
 
@@ -174,7 +179,7 @@ class SpyFuPPCCollector:
     def collect_all_domains(
         self,
         domains: List[str],
-        country_code: str = "US",
+        country_code: str = "FR",
         min_search_volume: Optional[int] = None
     ) -> List[Dict]:
         """
@@ -186,14 +191,14 @@ class SpyFuPPCCollector:
             min_search_volume: Volume de recherche minimum
 
         Returns:
-            Liste de tous les mots-clés formatés
+            Liste de tous les nouveaux mots-clés formatés
         """
         if not domains:
             raise ValueError("La liste de domaines ne peut pas être vide")
         all_keywords = []
 
         for domain in domains:
-            raw_keywords = self.get_most_successful_keywords(
+            raw_keywords = self.get_new_keywords(
                 domain=domain,
                 country_code=country_code,
                 min_search_volume=min_search_volume
@@ -257,7 +262,7 @@ class SpyFuPPCCollector:
         data: List[Dict],
         project_id: str,
         dataset_id: str = "spyfu",
-        table_id: str = "ppc_keywords",
+        table_id: str = "new_keywords",
         credentials_path: str = "../../account-key.json"
     ):
         """
@@ -353,19 +358,15 @@ class SpyFuPPCCollector:
 
         except Exception as e:
             print(f"✗ Erreur lors de l'upload BigQuery: {e}")
-            print(f"\nTypes de colonnes:")
-            for col in df.columns:
-                print(f"  - {col}: {df[col].dtype}")
-            print(f"\nPremière ligne (sample):")
-            print(df.iloc[0] if len(df) > 0 else "Aucune donnée")
-            import traceback
-            traceback.print_exc()
 
 
 def main():
     """Point d'entrée principal"""
+    import sys
 
-    # Charger la configuration
+    # ============================================================
+    # CHARGEMENT DE LA CONFIGURATION
+    # ============================================================
     # Détecter Cloud Functions
     is_cloud_function = os.getenv('FUNCTION_TARGET') is not None
     config = load_config(skip_credentials_check=is_cloud_function)
@@ -373,16 +374,19 @@ def main():
     # Récupérer les configurations
     spyfu_config = config.get_spyfu_config()
     google_config = config.get_google_cloud_config()
-    ppc_config = spyfu_config['endpoints']['ppc_keywords']
 
     API_KEY = spyfu_config['api_key']
     PROJECT_ID = google_config['project_id']
     DATASET_ID = google_config["datasets"]["spyfu"]
     CREDENTIALS_PATH = google_config["credentials_file"]
-    DATASET_ID = google_config['datasets']['spyfu']
-    CREDENTIALS_FILE = google_config['credentials_file']
     COUNTRY_CODE = spyfu_config.get('country_code', 'US')
-    PAGE_SIZE = spyfu_config.get('page_size', 1000)
+
+    # Configuration new_keywords
+    specific_config = spyfu_config.get('new_keywords', {})
+    if not specific_config.get('enabled', True):
+        print("⚠️  new_keywords désactivé dans la configuration")
+        return
+
 
     # Mode: "collect" ou "upload"
     mode = sys.argv[1] if len(sys.argv) > 1 else "collect"
@@ -390,15 +394,15 @@ def main():
     if mode == "upload":
         # Mode upload depuis JSON existant
         if len(sys.argv) < 3:
-            print("Usage: python spyfu_ppc_keywords.py upload <json_filename>")
-            print("Exemple: python spyfu_ppc_keywords.py upload spyfu_ppc_keywords_20250114_123456.json")
+            print("Usage: python spyfu_new_keywords.py upload <json_filename>")
+            print("Exemple: python spyfu_new_keywords.py upload spyfu_new_keywords_20250114_123456.json")
             sys.exit(1)
 
         json_filename = sys.argv[2]
 
-        print("SpyFu PPC Keywords - Upload depuis JSON")
+        print("SpyFu New Keywords - Upload depuis JSON")
 
-        collector = SpyFuPPCCollector(api_key=API_KEY)
+        collector = SpyFuNewKeywordsCollector(api_key=API_KEY)
 
         # Charger depuis JSON
         keywords_data = collector.load_from_json(json_filename)
@@ -409,7 +413,7 @@ def main():
                 data=keywords_data,
                 project_id=PROJECT_ID,
                 dataset_id=DATASET_ID,
-                credentials_path=CREDENTIALS_FILE
+                credentials_path=CREDENTIALS_PATH
             )
             print("\n✓ Upload terminé")
         else:
@@ -417,39 +421,25 @@ def main():
 
     else:
         # Mode collection normal
-        # Vérifier que le endpoint est activé
-        if not ppc_config.get('enabled', True):
-            print("⚠️  PPC Keywords endpoint désactivé dans la configuration")
-            sys.exit(0)
-
-        # Domaines depuis la configuration
-        DOMAINS = spyfu_config['domains']['all']
-
-        # Filtres depuis la configuration
-        filters = ppc_config.get('filters', {})
-        min_search_volume = filters.get('min_search_volume', spyfu_config['filters'].get('min_search_volume'))
+        # Domaines à analyser (à personnaliser)
+        DOMAINS = spyfu_config["domains"]["all"]
 
         # Initialiser le collecteur
-        collector = SpyFuPPCCollector(api_key=API_KEY)
-        collector.DOMAINS = DOMAINS
+        collector = SpyFuNewKeywordsCollector(api_key=API_KEY)
 
         # Collecter les données
-        print("SpyFu PPC Keywords Collection")
-        print(f"📍 Pays: {COUNTRY_CODE}")
-        print(f"🌐 Domaines: {', '.join(DOMAINS)}")
-        print(f"🔍 Filtre volume min: {min_search_volume or 'Aucun'}")
+        print("SpyFu New Keywords Collection")
     
         keywords_data = collector.collect_all_domains(
             domains=DOMAINS,
-            country_code=COUNTRY_CODE,
-            min_search_volume=min_search_volume
+            country_code=COUNTRY_CODE
         )
 
-        print(f"\n✓ Total: {len(keywords_data)} mots-clés collectés")
+        print(f"\n✓ Total: {len(keywords_data)} nouveaux mots-clés collectés")
 
         # Exporter en JSON (TOUJOURS avant BigQuery)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        json_filename = f"spyfu_ppc_keywords_{timestamp}.json"
+        json_filename = f"spyfu_new_keywords_{timestamp}.json"
         collector.export_to_json(keywords_data, json_filename)
 
         # Demander confirmation avant upload BigQuery

@@ -26,10 +26,10 @@ class SpyFuNewKeywordsCollector:
 
 
 
-    # Paramètres par défaut
+    # Paramètres par défaut (rowcount limité à 10 selon budget)
     DEFAULT_PARAMS = {
         "countryCode": "FR",
-        "pageSize": 10000,
+        "pageSize": 25,
         "startingRow": 1,
         "sortBy": "SearchVolume",
         "sortOrder": "Descending"
@@ -49,7 +49,7 @@ class SpyFuNewKeywordsCollector:
         self,
         domain: str,
         country_code: str = "FR",
-        page_size: int = 1000,
+        page_size: int = 25,
         min_search_volume: Optional[int] = None,
         max_cost_per_click: Optional[float] = None,
         is_question: Optional[bool] = None,
@@ -61,7 +61,7 @@ class SpyFuNewKeywordsCollector:
         Args:
             domain: Domaine à analyser
             country_code: Code pays (US, DE, GB, FR, etc.)
-            page_size: Nombre de résultats par page (max 10000)
+            page_size: Nombre de résultats par page (max 25)
             min_search_volume: Volume de recherche minimum
             max_cost_per_click: CPC maximum
             is_question: Filtrer sur les questions (True/False)
@@ -75,7 +75,7 @@ class SpyFuNewKeywordsCollector:
         params = {
             "query": domain,
             "countryCode": country_code,
-            "pageSize": min(page_size, 10000),
+            "pageSize": page_size,
             "startingRow": 1,
             "sortBy": "SearchVolume",
             "sortOrder": "Descending",
@@ -128,7 +128,7 @@ class SpyFuNewKeywordsCollector:
         return {
             # Identifiants
             "domain": domain,
-            "keyword": keyword_data.get("term"),
+            "keyword": keyword_data.get("keyword"),
 
             # Métriques de recherche
             "search_volume": keyword_data.get("searchVolume"),
@@ -180,6 +180,7 @@ class SpyFuNewKeywordsCollector:
         self,
         domains: List[str],
         country_code: str = "FR",
+        page_size: int = 25,
         min_search_volume: Optional[int] = None
     ) -> List[Dict]:
         """
@@ -188,6 +189,7 @@ class SpyFuNewKeywordsCollector:
         Args:
             domains: Liste des domaines à analyser
             country_code: Code pays
+            page_size: Nombre de résultats par domaine
             min_search_volume: Volume de recherche minimum
 
         Returns:
@@ -201,6 +203,7 @@ class SpyFuNewKeywordsCollector:
             raw_keywords = self.get_new_keywords(
                 domain=domain,
                 country_code=country_code,
+                page_size=page_size,
                 min_search_volume=min_search_volume
             )
 
@@ -215,6 +218,18 @@ class SpyFuNewKeywordsCollector:
         if not data:
             print(f"⚠️  Aucune donnée à exporter")
             return
+        
+        # Skip export en Cloud Functions
+        if os.getenv('FUNCTION_TARGET'):
+                return
+        
+        # Skip export en Cloud Functions
+        if os.getenv('FUNCTION_TARGET'):
+                return
+        
+        # Skip export en Cloud Functions
+        if os.getenv('FUNCTION_TARGET'):
+                return
 
         filepath = f"../data/{filename}"
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -222,7 +237,6 @@ class SpyFuNewKeywordsCollector:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, default=str)
 
-        print(f"✓ Données exportées: {filepath}")
 
     def load_from_json(self, filename: str) -> List[Dict]:
         """
@@ -270,10 +284,16 @@ class SpyFuNewKeywordsCollector:
 
         try:
             # Préparer les credentials
-            credentials = service_account.Credentials.from_service_account_file(
-                credentials_path,
-                scopes=["https://www.googleapis.com/auth/bigquery"]
-            )
+            # En Cloud Functions, utiliser l'authentification par défaut
+            if os.getenv('FUNCTION_TARGET'):
+                credentials = None  # Utilise l'authentification par défaut
+            elif credentials_path and os.path.exists(credentials_path):
+                credentials = service_account.Credentials.from_service_account_file(
+                    credentials_path,
+                    scopes=["https://www.googleapis.com/auth/bigquery"]
+                )
+            else:
+                credentials = None
 
             # Convertir en DataFrame
             df = pd.DataFrame(data)
@@ -314,6 +334,16 @@ class SpyFuNewKeywordsCollector:
             if 'retrieved_at' in df.columns:
                 df['retrieved_at'] = pd.to_datetime(df['retrieved_at'], utc=True)
 
+            # Convertir les colonnes INT64 (arrondir les FLOAT pour éviter erreur Parquet)
+            int_columns = [
+                'search_volume', 'total_monthly_clicks',
+                'broad_monthly_clicks', 'phrase_monthly_clicks', 'exact_monthly_clicks',
+                'paid_competitors', 'ranking_homepages'
+            ]
+            for col in int_columns:
+                if col in df.columns:
+                    df[col] = df[col].fillna(0).round().astype('Int64')
+
             table_full_id = f"{project_id}.{dataset_id}.{table_id}"
 
             print(f"📤 Upload de {len(df)} lignes vers {table_full_id}...")
@@ -340,8 +370,9 @@ def main():
     # ============================================================
     # CHARGEMENT DE LA CONFIGURATION
     # ============================================================
-    print("📋 Chargement de la configuration...")
-    config = load_config()
+    # Détecter Cloud Functions
+    is_cloud_function = os.getenv('FUNCTION_TARGET') is not None
+    config = load_config(skip_credentials_check=is_cloud_function)
 
     # Récupérer les configurations
     spyfu_config = config.get_spyfu_config()
@@ -351,6 +382,7 @@ def main():
     PROJECT_ID = google_config['project_id']
     DATASET_ID = google_config["datasets"]["spyfu"]
     CREDENTIALS_PATH = google_config["credentials_file"]
+    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
 
     # Configuration new_keywords
     specific_config = spyfu_config.get('new_keywords', {})
@@ -371,9 +403,7 @@ def main():
 
         json_filename = sys.argv[2]
 
-        print("=" * 60)
         print("SpyFu New Keywords - Upload depuis JSON")
-        print("=" * 60)
 
         collector = SpyFuNewKeywordsCollector(api_key=API_KEY)
 
@@ -401,14 +431,12 @@ def main():
         collector = SpyFuNewKeywordsCollector(api_key=API_KEY)
 
         # Collecter les données
-        print("=" * 60)
         print("SpyFu New Keywords Collection")
-        print("=" * 60)
-
+    
         keywords_data = collector.collect_all_domains(
             domains=DOMAINS,
-            country_code="FR",
-            min_search_volume=100  # Optionnel: filtrer par volume minimum
+            country_code=COUNTRY_CODE,
+            page_size=25
         )
 
         print(f"\n✓ Total: {len(keywords_data)} nouveaux mots-clés collectés")

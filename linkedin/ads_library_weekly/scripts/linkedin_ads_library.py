@@ -73,14 +73,13 @@ class LinkedInAdsLibraryClient:
 
         self.last_request_time = time.time()
 
-    def _make_request_with_retry(self, url: str, max_retries: int = 3, debug: bool = False) -> requests.Response:
+    def _make_request_with_retry(self, url: str, max_retries: int = 3) -> requests.Response:
         """
         Effectue une requête HTTP avec retry en cas d'erreur 429
 
         Args:
             url: URL à requêter
             max_retries: Nombre maximum de tentatives
-            debug: Afficher les détails de la requête/réponse
 
         Returns:
             Response object
@@ -89,18 +88,14 @@ class LinkedInAdsLibraryClient:
             # Respecter le rate limit
             self._wait_for_rate_limit()
 
-            if debug:
-                print(f"\n🔍 DEBUG - Requête:")
-                print(f"   URL: {url}")
-                print(f"   Headers: {self._get_headers()}")
+            # DEBUG: Afficher l'URL appelée
+            print(f"🔍 DEBUG - URL: {url}")
 
             response = requests.get(url, headers=self._get_headers())
 
-            if debug:
-                print(f"\n🔍 DEBUG - Réponse:")
-                print(f"   Status: {response.status_code}")
-                print(f"   Headers: {dict(response.headers)}")
-                print(f"   Body: {response.text[:500]}...")
+            # DEBUG: Afficher la réponse
+            print(f"🔍 DEBUG - Status: {response.status_code}")
+            print(f"🔍 DEBUG - Response: {response.text[:1000]}")
 
             # Succès
             if response.status_code == 200:
@@ -150,7 +145,7 @@ class LinkedInAdsLibraryClient:
 
     def search_ads_by_keyword(self, keyword: str, countries: Optional[List[str]] = None,
                                date_range: Optional[Dict] = None,
-                               start: int = 0, count: int = 25, debug: bool = False) -> Dict:
+                               start: int = 0, count: int = 25) -> Dict:
         """
         Recherche des publicités par mot-clé
 
@@ -196,16 +191,13 @@ class LinkedInAdsLibraryClient:
             )
             url += f"&dateRange={date_range_param}"
 
-        if debug:
-            print(f"\n🔍 DEBUG - URL finale (keyword): {url}")
-
-        response = self._make_request_with_retry(url, debug=debug)
+        response = self._make_request_with_retry(url)
 
         return response.json()
 
     def search_ads_by_advertiser(self, advertiser: str, countries: Optional[List[str]] = None,
                                   date_range: Optional[Dict] = None,
-                                  start: int = 0, count: int = 25, debug: bool = False) -> Dict:
+                                  start: int = 0, count: int = 25) -> Dict:
         """
         Recherche des publicités d'un annonceur spécifique
 
@@ -250,22 +242,19 @@ class LinkedInAdsLibraryClient:
             )
             url += f"&dateRange={date_range_param}"
 
-        if debug:
-            print(f"\n🔍 DEBUG - URL finale (advertiser): {url}")
-
-        response = self._make_request_with_retry(url, debug=debug)
+        response = self._make_request_with_retry(url)
 
         return response.json()
 
-    def extract_ads_data(self, api_response: Dict, keyword: str = None, 
-                        advertiser_search: str = None) -> List[Dict]:
+    def extract_ads_data(self, api_response: Dict, keyword: str = None,
+                        countries: Optional[List[str]] = None) -> List[Dict]:
         """
         Extrait et formate les données des publicités depuis la réponse API
 
         Args:
             api_response: Réponse brute de l'API
             keyword: Mot-clé utilisé pour la recherche (optionnel)
-            advertiser_search: Nom de l'annonceur recherché (optionnel)
+            countries: Liste des codes pays utilisés dans la recherche (optionnel)
 
         Returns:
             list: Liste de dictionnaires avec les données formatées
@@ -367,17 +356,12 @@ class LinkedInAdsLibraryClient:
                 if isinstance(api_response, dict) and api_response.get("metadata"):
                     date_range = api_response.get("metadata", {}).get("dateRange")
 
-                # Pays (depuis les paramètres de recherche)
-                countries = None
-                if isinstance(api_response, dict) and api_response.get("metadata"):
-                    countries_list = api_response.get("metadata", {}).get("countries", [])
-                    if countries_list:
-                        countries = ",".join(countries_list)
+                # Pays (depuis les paramètres de recherche fournis à la fonction)
+                countries_str = ",".join([c.upper() for c in countries]) if countries else None
 
                 result = {
                     "keyword": keyword,
-                    "countries": countries,
-                    "advertiser": advertiser_search,
+                    "countries": countries_str,
                     "date_range": date_range,
                     "paging_context": paging_context,
                     "ad_url": ad_url,
@@ -411,7 +395,7 @@ class LinkedInAdsLibraryClient:
     def search_all_ads(self, keyword: str = None, advertiser: str = None,
                       countries: Optional[List[str]] = None,
                       date_range: Optional[Dict] = None,
-                      max_results: int = 500, debug: bool = False) -> List[Dict]:
+                      max_results: int = 500) -> List[Dict]:
         """
         Recherche toutes les publicités avec pagination automatique
 
@@ -420,7 +404,6 @@ class LinkedInAdsLibraryClient:
             advertiser: Nom de l'annonceur (optionnel)
             countries: Liste de codes pays
             max_results: Nombre maximum de résultats à récupérer
-            debug: Afficher les détails de debug
 
         Returns:
             list: Liste complète des publicités formatées
@@ -433,39 +416,30 @@ class LinkedInAdsLibraryClient:
             print(f"  → Récupération des résultats {start} à {start + count}...")
             
             if keyword:
+                # IMPORTANT: Le filtre dateRange ne fonctionne PAS avec l'API LinkedIn Ads Library
                 response = self.search_ads_by_keyword(
                     keyword=keyword,
                     countries=countries,
-                    date_range=date_range,
+                    date_range=None,  # Ne pas utiliser ce filtre
                     start=start,
-                    count=count,
-                    debug=debug
+                    count=count
                 )
             elif advertiser:
+                # IMPORTANT: Le filtre dateRange ne fonctionne PAS avec l'API LinkedIn Ads Library
+                # Malgré ce que dit la doc, il retourne toujours 0 résultat quand on l'utilise
+                # On récupère toutes les publicités et on utilisera first_impression_date pour filtrer
                 response = self.search_ads_by_advertiser(
                     advertiser=advertiser,
                     countries=countries,
-                    date_range=date_range,
+                    date_range=None,  # Ne pas utiliser ce filtre
                     start=start,
-                    count=count,
-                    debug=debug
+                    count=count
                 )
             else:
                 raise ValueError("Vous devez spécifier soit un keyword, soit un advertiser")
             
-            # Debug: afficher la structure de la réponse
-            if debug:
-                print(f"\n🔍 DEBUG - Structure réponse:")
-                print(f"   Type: {type(response)}")
-                print(f"   Keys: {response.keys() if isinstance(response, dict) else 'N/A'}")
-                if isinstance(response, dict):
-                    elements = response.get('elements', [])
-                    print(f"   Nombre d'éléments: {len(elements)}")
-                    if elements:
-                        print(f"   Premier élément: {json.dumps(elements[0], indent=2, default=str)[:500]}...")
-            
             # Extraire les données
-            ads = self.extract_ads_data(response, keyword=keyword, advertiser_search=advertiser)
+            ads = self.extract_ads_data(response, keyword=keyword, countries=countries)
             
             if not ads:
                 print(f"  ✓ Aucune publicité supplémentaire trouvée")
@@ -578,7 +552,6 @@ class LinkedInAdsLibraryClient:
             schema = [
                 bigquery.SchemaField("keyword", "STRING", mode="NULLABLE"),
                 bigquery.SchemaField("countries", "STRING", mode="NULLABLE"),
-                bigquery.SchemaField("advertiser", "STRING", mode="NULLABLE"),
                 bigquery.SchemaField("date_range", "STRING", mode="NULLABLE"),
                 bigquery.SchemaField("paging_context", "STRING", mode="NULLABLE"),
                 bigquery.SchemaField("ad_url", "STRING", mode="NULLABLE"),
@@ -620,9 +593,49 @@ class LinkedInAdsLibraryClient:
             # Attendre la fin du job
             job.result()
 
-            # Vérifier le résultat
+            # Vérifier le résultat avant déduplication
             table = client.get_table(table_id)
-            print(f"✓ Upload réussi! Total lignes dans la table: {table.num_rows:,}")
+            print(f"✓ Upload réussi! Lignes avant déduplication: {table.num_rows:,}")
+
+            # Déduplication : créer une table temporaire avec les données uniques, puis remplacer
+            print(f"\n→ Déduplication en cours...")
+
+            # Créer une table temporaire avec les données dédupliquées
+            temp_table_id = f"{table_id}_temp"
+
+            dedup_query = f"""
+            CREATE OR REPLACE TABLE `{temp_table_id}` AS
+            SELECT * EXCEPT(row_num)
+            FROM (
+                SELECT
+                    *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ad_url
+                        ORDER BY retrieved_at DESC, latest_impression_date DESC NULLS LAST
+                    ) as row_num
+                FROM `{table_id}`
+            )
+            WHERE row_num = 1
+            """
+
+            dedup_job = client.query(dedup_query)
+            dedup_job.result()
+
+            # Remplacer la table originale par la table temporaire
+            replace_query = f"""
+            CREATE OR REPLACE TABLE `{table_id}` AS
+            SELECT * FROM `{temp_table_id}`
+            """
+
+            replace_job = client.query(replace_query)
+            replace_job.result()
+
+            # Supprimer la table temporaire
+            client.delete_table(temp_table_id, not_found_ok=True)
+            
+            # Vérifier le résultat après déduplication
+            table = client.get_table(table_id)
+            print(f"✓ Déduplication terminée! Lignes uniques: {table.num_rows:,}")
 
         except Exception as e:
             print(f"✗ Erreur lors de l'upload vers BigQuery: {e}")
@@ -634,6 +647,22 @@ class LinkedInAdsLibraryClient:
 def main():
     """
     Exemple d'utilisation du client LinkedIn Ads Library
+
+    Mode de fonctionnement:
+    - Utilise la liste des annonceurs (advertisers) comme mots-clés de recherche
+    - Effectue une recherche par keyword sur l'API pour chaque nom d'annonceur
+
+    Exemple de configuration dans config.yaml:
+      ads_library:
+        advertisers:
+          - "Crisis24"
+          - "Global Guardian"
+          - "AlertMedia"
+        countries:
+          - "us"
+
+    Résultat: Le script fera 3 appels API avec keyword="Crisis24", keyword="Global Guardian",
+             et keyword="AlertMedia" pour trouver toutes les publicités liées à ces annonceurs.
     """
 
     # Charger la configuration
@@ -659,15 +688,9 @@ def main():
     DATASET_ID = google_config['datasets']['linkedin_ads_library']
     CREDENTIALS_PATH = None if is_cloud_function else google_config.get('credentials_file')
 
-    # Calculer la plage de dates
-    # TEMPORAIRE: depuis le 01/01/2025 pour récupération initiale
-    # TODO: Remettre la logique de "hier" pour la production Cloud Run
-    start_date = datetime(2025, 1, 1)
-    today = datetime.now()
-    date_range = {
-        'start': {'day': start_date.day, 'month': start_date.month, 'year': start_date.year},
-        'end': {'day': today.day, 'month': today.month, 'year': today.year}
-    }
+    # NOTE: Le filtre dateRange ne fonctionne pas avec l'API LinkedIn Ads Library
+    # On récupère toutes les publicités actives sans filtre de date
+    # Les champs first_impression_date et latest_impression_date permettront de filtrer après
 
     # Configuration de la recherche depuis le YAML
     ads_library_config = linkedin_config.get('ads_library', {})
@@ -676,19 +699,17 @@ def main():
     COUNTRIES = ads_library_config.get('countries', ['fr'])
     MAX_RESULTS_PER_SEARCH = ads_library_config.get('max_results_per_search', 500)
     REQUEST_DELAY = ads_library_config.get('request_delay', 2.0)  # Délai entre requêtes en secondes
-    DEBUG_MODE = True  # FORCÉ À TRUE POUR DEBUG
 
     print("=" * 70)
     print("LINKEDIN ADS LIBRARY - RECHERCHE PUBLICITAIRE")
     print("=" * 70)
     print(f"\nBigQuery: {PROJECT_ID}.{DATASET_ID}")
     print(f"\nConfiguration de recherche:")
-    print(f"  - Mots-clés: {len(KEYWORDS)} ({', '.join(KEYWORDS[:3])}{'...' if len(KEYWORDS) > 3 else ''})")
-    print(f"  - Annonceurs: {len(ADVERTISERS)} ({', '.join(ADVERTISERS[:3])}{'...' if len(ADVERTISERS) > 3 else 'Aucun'})")
+    print(f"  - Annonceurs (utilisés comme keywords): {len(ADVERTISERS)} ({', '.join(ADVERTISERS[:3])}{'...' if len(ADVERTISERS) > 3 else 'Aucun'})")
     print(f"  - Pays: {', '.join(COUNTRIES)}")
     print(f"  - Max résultats/recherche: {MAX_RESULTS_PER_SEARCH}")
     print(f"  - Délai entre requêtes: {REQUEST_DELAY}s")
-    print(f"  - Mode debug: {DEBUG_MODE}\n")
+    print(f"\n💡 Mode: Recherche par keywords en utilisant les noms d'annonceurs\n")
 
     # Initialiser le client
     client = LinkedInAdsLibraryClient(
@@ -699,63 +720,39 @@ def main():
         request_delay=REQUEST_DELAY
     )
 
-    # Vérifier qu'au moins une recherche est configurée
-    if not KEYWORDS and not ADVERTISERS:
-        print("⚠️  Aucun critère de recherche configuré !")
-        print("   Veuillez ajouter des keywords ou des advertisers dans config.yaml")
-        print("   Section: linkedin.ads_library.keywords ou linkedin.ads_library.advertisers")
+    # Vérifier qu'au moins des advertisers sont configurés
+    if not ADVERTISERS:
+        print("⚠️  Aucun annonceur configuré !")
+        print("   Veuillez ajouter des advertisers dans config.yaml")
+        print("   Section: linkedin.ads_library.advertisers")
         return
 
     all_results = []
 
-    # Étape 1: Recherche par mots-clés
-    if KEYWORDS:
-        print("=" * 70)
-        print("1. Recherche par mots-clés")
-        print("=" * 70)
-        print(f"   {len(KEYWORDS)} mot(s)-clé(s) à rechercher\n")
-        
-        for keyword in KEYWORDS:
-            try:
-                ads = client.search_all_ads(
-                    keyword=keyword,
-                    countries=COUNTRIES,
-                    date_range=date_range,
-                    max_results=MAX_RESULTS_PER_SEARCH,
-                    debug=DEBUG_MODE
-                )
-                
-                print(f"✓ Total: {len(ads)} publicité(s) trouvée(s)")
-                all_results.extend(ads)
-                
-            except Exception as e:
-                print(f"✗ Erreur pour '{keyword}': {e}")
-            except Exception as e:
-                print(f"✗ Erreur pour '{keyword}': {e}")
-
-    # Étape 2: Recherche par annonceurs
+    # Étape 1: Recherche par mots-clés en utilisant les noms d'annonceurs
+    # L'API LinkedIn recherche par keyword, on utilise donc les noms d'annonceurs comme keywords
     if ADVERTISERS:
-        print("\n" + "=" * 70)
-        print("2. Recherche par annonceurs")
         print("=" * 70)
-        print(f"   {len(ADVERTISERS)} annonceur(s) à surveiller\n")
-        
+        print("1. Recherche par mots-clés (noms d'annonceurs)")
+        print("=" * 70)
+        print(f"   {len(ADVERTISERS)} annonceur(s) à rechercher comme mots-clés\n")
+
         for advertiser in ADVERTISERS:
-            print(f"\n→ Recherche pour l'annonceur: '{advertiser}'")
+            print(f"\n→ Recherche pour le mot-clé: '{advertiser}'")
+
             try:
+                # Utiliser search_ads_by_keyword avec le nom de l'annonceur
                 ads = client.search_all_ads(
-                    advertiser=advertiser,
+                    keyword=advertiser,
                     countries=COUNTRIES,
-                    date_range=date_range,
-                    max_results=MAX_RESULTS_PER_SEARCH,
-                    debug=DEBUG_MODE
+                    date_range=None,
+                    max_results=MAX_RESULTS_PER_SEARCH
                 )
-                
-                print(f"✓ Total: {len(ads)} publicité(s) trouvée(s)")
+
+                print(f"✓ Total trouvé: {len(ads)} publicité(s)")
                 all_results.extend(ads)
-                
+
             except Exception as e:
-                print(f"✗ Erreur pour '{advertiser}': {e}")
                 print(f"✗ Erreur pour '{advertiser}': {e}")
 
     # Étape 3: Export et Upload

@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from config_loader import load_config
 
 
-class SpyFuSeoKeywordsCollector:
+class SpyFuSeoCollector:
     """Collecteur de mots-clés SEO depuis l'API SpyFu"""
 
     BASE_URL = "https://api.spyfu.com/apis/serp_api/v2/seo"
@@ -37,7 +37,7 @@ class SpyFuSeoKeywordsCollector:
     # Paramètres par défaut
     DEFAULT_PARAMS = {
         "countryCode": "FR",
-        "pageSize": 10000,
+        "pageSize": 25,  # Limité à 25 selon budget
         "startingRow": 1,
         "sortBy": "SearchVolume",
         "sortOrder": "Descending",
@@ -59,7 +59,7 @@ class SpyFuSeoKeywordsCollector:
         domain: str,
         search_type: str = "MostValuable",
         country_code: str = "FR",
-        page_size: int = 1000,
+        page_size: int = 25,
         min_search_volume: Optional[int] = None,
         min_seo_clicks: Optional[int] = None,
         compare_domain: Optional[str] = None,
@@ -72,7 +72,7 @@ class SpyFuSeoKeywordsCollector:
             domain: Domaine à analyser
             search_type: Type de recherche (MostValuable, GainedClicks, etc.)
             country_code: Code pays (US, DE, GB, FR, etc.)
-            page_size: Nombre de résultats par page (max 10000)
+            page_size: Nombre de résultats par page (max 25 selon budget)
             min_search_volume: Volume de recherche minimum
             min_seo_clicks: Nombre minimum de clics SEO
             compare_domain: Domaine à comparer (optionnel)
@@ -85,9 +85,9 @@ class SpyFuSeoKeywordsCollector:
 
         params = {
             "query": domain,
-            "searchType": search_type,
-            "countryCode": country_code,
-            "pageSize": min(page_size, 10000),
+            "searchType": search_type,  # STRING requis selon doc ("MostValuable", "GainedClicks", etc.)
+            "countryCode": country_code,  # STRING (US, FR, etc.)
+            "pageSize": min(page_size, 25),
             "startingRow": 1,
             "sortBy": sort_by,
             "sortOrder": "Descending",
@@ -108,7 +108,8 @@ class SpyFuSeoKeywordsCollector:
         }
 
         try:
-            print(f"🔍 Récupération des keywords SEO ({search_type}) pour {domain}...")
+            print(f"🔍 Récupération des keywords SEO ({search_type}) pour {domain}")
+
             response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
             response.raise_for_status()
 
@@ -116,6 +117,7 @@ class SpyFuSeoKeywordsCollector:
             keywords = data.get("results", [])
 
             print(f"✓ {len(keywords)} keywords SEO récupérés pour {domain}")
+
             return keywords
 
         except requests.exceptions.RequestException as e:
@@ -193,7 +195,8 @@ class SpyFuSeoKeywordsCollector:
         domains: List[str],
         search_type: str = "MostValuable",
         country_code: str = "FR",
-        min_search_volume: Optional[int] = None
+        min_search_volume: Optional[int] = None,
+        compare_domain: Optional[str] = None
     ) -> List[Dict]:
         """
         Collecte les données pour tous les domaines
@@ -203,6 +206,7 @@ class SpyFuSeoKeywordsCollector:
             search_type: Type de recherche SEO
             country_code: Code pays
             min_search_volume: Volume de recherche minimum
+            compare_domain: Domaine de comparaison (votre domaine principal)
 
         Returns:
             Liste de tous les mots-clés formatés
@@ -217,7 +221,8 @@ class SpyFuSeoKeywordsCollector:
                 domain=domain,
                 search_type=search_type,
                 country_code=country_code,
-                min_search_volume=min_search_volume
+                min_search_volume=min_search_volume,
+                compare_domain=compare_domain
             )
 
             for kw in raw_keywords:
@@ -229,7 +234,11 @@ class SpyFuSeoKeywordsCollector:
     def export_to_json(self, data: List[Dict], filename: str):
         """Exporte les données en JSON"""
         if not data:
-            print(f"⚠️  Aucune donnée à exporter")
+            print("⚠️  Aucune donnée à exporter")
+            return
+        
+        # Skip export en Cloud Functions
+        if os.getenv('FUNCTION_TARGET'):
             return
 
         filepath = f"../data/{filename}"
@@ -238,7 +247,6 @@ class SpyFuSeoKeywordsCollector:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, default=str)
 
-        print(f"✓ Données exportées: {filepath}")
 
     def load_from_json(self, filename: str) -> List[Dict]:
         """
@@ -286,10 +294,16 @@ class SpyFuSeoKeywordsCollector:
 
         try:
             # Préparer les credentials
-            credentials = service_account.Credentials.from_service_account_file(
-                credentials_path,
-                scopes=["https://www.googleapis.com/auth/bigquery"]
-            )
+            # En Cloud Functions, utiliser l'authentification par défaut
+            if os.getenv('FUNCTION_TARGET'):
+                credentials = None  # Utilise l'authentification par défaut
+            elif credentials_path and os.path.exists(credentials_path):
+                credentials = service_account.Credentials.from_service_account_file(
+                    credentials_path,
+                    scopes=["https://www.googleapis.com/auth/bigquery"]
+                )
+            else:
+                credentials = None
 
             # Convertir en DataFrame
             df = pd.DataFrame(data)
@@ -305,6 +319,19 @@ class SpyFuSeoKeywordsCollector:
             if len(df) == 0:
                 print(f"⚠️  Aucune donnée valide à uploader après filtrage")
                 return
+            
+            # Supprimer les colonnes your_* (utilisées uniquement avec compareDomain) si non dans le schéma
+            # Le schéma BigQuery ne contient pas: your_rank, your_rank_change, your_url
+            columns_to_drop = [col for col in df.columns if col.startswith('your_')]
+            if columns_to_drop:
+                print(f"   ℹ️  Suppression des colonnes de comparaison: {', '.join(columns_to_drop)}")
+                df = df.drop(columns=columns_to_drop)
+            
+            # Supprimer aussi les colonnes entièrement NULL
+            null_columns = [col for col in df.columns if df[col].isna().all()]
+            if null_columns:
+                print(f"   ℹ️  Suppression des colonnes vides: {', '.join(null_columns)}")
+                df = df.drop(columns=null_columns)
 
             # Conversion des types pour BigQuery
             import json
@@ -355,8 +382,9 @@ def main():
     # ============================================================
     # CHARGEMENT DE LA CONFIGURATION
     # ============================================================
-    print("📋 Chargement de la configuration...")
-    config = load_config()
+    # Détecter Cloud Functions
+    is_cloud_function = os.getenv('FUNCTION_TARGET') is not None
+    config = load_config(skip_credentials_check=is_cloud_function)
 
     # Récupérer les configurations
     spyfu_config = config.get_spyfu_config()
@@ -376,7 +404,7 @@ def main():
     # Paramètres depuis la configuration
     DOMAINS = spyfu_config['domains']['all']
     SEARCH_TYPE = seo_config.get('search_type', 'MostValuable')
-    COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code', 'FR')
+    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
     MIN_SEARCH_VOLUME = seo_config.get('filters', {}).get('min_search_volume', 100)
     MIN_SEO_CLICKS = seo_config.get('filters', {}).get('min_seo_clicks', 10)
     SORT_BY = seo_config.get('sort_by', 'SearchVolume')
@@ -393,9 +421,7 @@ def main():
 
         json_filename = sys.argv[2]
 
-        print("=" * 60)
         print("SpyFu SEO Keywords - Upload depuis JSON")
-        print("=" * 60)
 
         collector = SpyFuSeoKeywordsCollector(api_key=API_KEY)
 
@@ -416,10 +442,15 @@ def main():
 
     else:
         # Mode collection normal
-        print("=" * 60)
+        PRIMARY_DOMAIN = spyfu_config["domains"]["primary"]
+        COMPETITORS = spyfu_config["domains"]["competitors"]
+
+        # Analyser les concurrents en comparant avec notre domaine principal
+        DOMAINS = COMPETITORS
+
         print(f"SpyFu SEO Keywords Collection ({SEARCH_TYPE})")
-        print("=" * 60)
-        print(f"  - Domaines: {len(DOMAINS)}")
+        print(f"🎯 Domaine principal (comparaison): {PRIMARY_DOMAIN}")
+        print(f"🔍 Concurrents analysés: {', '.join(COMPETITORS)}")
         print(f"  - Pays: {COUNTRY_CODE}")
         print(f"  - Volume min: {MIN_SEARCH_VOLUME}")
         print(f"  - Clics SEO min: {MIN_SEO_CLICKS}")
@@ -433,7 +464,8 @@ def main():
             domains=DOMAINS,
             search_type=SEARCH_TYPE,
             country_code=COUNTRY_CODE,
-            min_search_volume=MIN_SEARCH_VOLUME
+            min_search_volume=MIN_SEARCH_VOLUME,
+            compare_domain=PRIMARY_DOMAIN
         )
 
         print(f"\n✓ Total: {len(keywords_data)} keywords SEO collectés")

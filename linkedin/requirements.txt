@@ -1,0 +1,21 @@
+# ============================================================
+# LinkedIn Campaign Analytics - Cloud Functions Dependencies
+# ============================================================
+
+# HTTP Requests
+requests>=2.31.0
+
+# Data Processing
+pandas>=2.0.0
+numpy<2.0.0  # IMPORTANT: numpy 2.x incompatible avec pandas-gbq
+
+# Google Cloud & BigQuery
+google-auth>=2.23.0
+google-cloud-bigquery>=3.11.0
+pandas-gbq>=0.19.0
+
+# Configuration
+pyyaml>=6.0
+
+# Cloud Functions Framework
+functions-framework>=3.0.0

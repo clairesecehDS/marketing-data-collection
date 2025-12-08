@@ -2,52 +2,139 @@
 -- Microsoft Clarity Schema for BigQuery
 -- =====================================================
 -- Dataset: microsoft_clarity
--- Following official Clarity Data Export API structure
+-- Table unique avec métriques au format RECORD/STRUCT
 -- =====================================================
 
 -- =====================================================
--- Main Table: Clarity Metrics (Official Format)
+-- Main Table: Clarity Metrics (Format Markdown/RECORD)
 -- =====================================================
 CREATE TABLE IF NOT EXISTS `project-id.microsoft_clarity.clarity_metrics` (
-  -- Date
-  date TIMESTAMP NOT NULL,
-
-  -- Page Information
-  name STRING,
+  -- Date et Timestamp
+  date DATE NOT NULL,
+  retrieved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
+  
+  -- URL de la page (dimension principale)
   url STRING,
-  page_titles STRING,
-  popular_pages STRING,
-  referrer_urls STRING,
+  visits_count INT64,
 
-  -- Session & User Metrics
-  total_sessions INT64,
-  total_users INT64,
-  page_views INT64,
+  -- Scroll Depth (en pourcentages)
+  scroll_depth STRUCT<
+    percentage_0_10 INT64,
+    percentage_11_25 INT64,
+    percentage_26_50 INT64,
+    percentage_51_75 INT64,
+    percentage_76_100 INT64,
+    average_scroll_depth FLOAT64
+  >,
 
-  -- Engagement Metrics
-  avg_engagement_time FLOAT64,
-  scroll_depth FLOAT64,
+  -- Engagement Time
+  engagement_time STRUCT<
+    total_time FLOAT64,
+    active_time FLOAT64
+  >,
 
-  -- User Experience Issues
-  dead_clicks INT64,
-  rage_clicks INT64,
-  quick_backs INT64,
-  excessive_scrolling INT64,
-  error_clicks INT64,
+  -- Traffic
+  traffic STRUCT<
+    total_session_count INT64,
+    total_bot_session_count INT64,
+    distinct_user_count INT64,
+    pages_per_session FLOAT64
+  >,
 
-  -- Technical Issues
-  script_errors INT64,
+  -- Browser (tableau de structures)
+  browser ARRAY<STRUCT<
+    name STRING,
+    sessions_count INT64
+  >>,
 
-  -- Dimension Breakdowns (JSON strings)
-  browser_breakdown STRING,
-  device_breakdown STRING,
-  os_breakdown STRING,
-  user_geography STRING,
+  -- Device (tableau de structures)
+  device ARRAY<STRUCT<
+    name STRING,
+    sessions_count INT64
+  >>,
+
+  -- OS (tableau de structures)
+  os ARRAY<STRUCT<
+    name STRING,
+    sessions_count INT64
+  >>,
+
+  -- Country/Region (tableau de structures)
+  country ARRAY<STRUCT<
+    name STRING,
+    sessions_count INT64
+  >>,
+
+  -- Page Title (tableau de structures)
+  page_title ARRAY<STRUCT<
+    name STRING,
+    sessions_count INT64
+  >>,
+
+  -- Referrer URL (tableau de structures)
+  referrer_url ARRAY<STRUCT<
+    name STRING,
+    sessions_count INT64
+  >>,
+
+  -- Dead Clicks
+  dead_clicks STRUCT<
+    sessions_count INT64,
+    sessions_with_metric_percentage FLOAT64,
+    sessions_without_metric_percentage FLOAT64,
+    pages_views INT64,
+    sub_total INT64
+  >,
+
+  -- Excessive Scroll
+  excessive_scroll STRUCT<
+    sessions_count INT64,
+    sessions_with_metric_percentage FLOAT64,
+    sessions_without_metric_percentage FLOAT64,
+    pages_views INT64,
+    sub_total INT64
+  >,
+
+  -- Rage Clicks
+  rage_clicks STRUCT<
+    sessions_count INT64,
+    sessions_with_metric_percentage FLOAT64,
+    sessions_without_metric_percentage FLOAT64,
+    pages_views INT64,
+    sub_total INT64
+  >,
+
+  -- Quickback Clicks
+  quickback_clicks STRUCT<
+    sessions_count INT64,
+    sessions_with_metric_percentage FLOAT64,
+    sessions_without_metric_percentage FLOAT64,
+    pages_views INT64,
+    sub_total INT64
+  >,
+
+  -- Script Errors
+  script_errors STRUCT<
+    sessions_count INT64,
+    sessions_with_metric_percentage FLOAT64,
+    sessions_without_metric_percentage FLOAT64,
+    pages_views INT64,
+    sub_total INT64
+  >,
+
+  -- Error Clicks
+  error_clicks STRUCT<
+    sessions_count INT64,
+    sessions_with_metric_percentage FLOAT64,
+    sessions_without_metric_percentage FLOAT64,
+    pages_views INT64,
+    sub_total INT64
+  >,
 
   -- Metadata
-  retrieved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+  project_name STRING     -- Nom du projet Clarity (EPBS, SOS, etc.)
 )
-PARTITION BY DATE(date)
-CLUSTER BY url, date;
+PARTITION BY date
+CLUSTER BY date, url, project_name;
 
 -- Views omitted for brevity, see full file

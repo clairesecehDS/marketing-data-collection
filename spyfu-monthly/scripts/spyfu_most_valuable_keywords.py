@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-SpyFu Outrank Comparison Collector
-Compare où les concurrents surclassent votre domaine en SEO
+SpyFu Most Valuable Keywords Collector
+Récupère les mots-clés SEO les plus précieux pour une liste de domaines
 """
 
 import os
@@ -13,32 +13,16 @@ from typing import List, Dict, Optional
 import pandas as pd
 import pandas_gbq
 from google.oauth2 import service_account
+
 # Ajouter le répertoire parent au path pour importer config_loader
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from config_loader import load_config
 
 
-
-class SpyFuOutrankCollector:
-    """Collecteur de comparaisons de ranking SEO depuis l'API SpyFu"""
+class SpyFuMostValuableCollector:
+    """Collecteur de mots-clés SEO les plus précieux depuis l'API SpyFu"""
 
     BASE_URL = "https://api.spyfu.com/apis/serp_api/v2/seo"
-
-    # Comparaisons à effectuer (votre domaine vs concurrents)
-    COMPARISONS = [
-        {"domain": "your-domain.com", "compare_domain": "competitor1.com"},
-        {"domain": "your-domain.com", "compare_domain": "competitor2.com"},
-    ]
-
-    # Paramètres par défaut
-    DEFAULT_PARAMS = {
-        "countryCode": "FR",
-        "pageSize": 10000,
-        "startingRow": 1,
-        "sortBy": "SearchVolume",
-        "sortOrder": "Descending",
-        "adultFilter": True
-    }
 
     def __init__(self, api_key: str):
         """
@@ -50,86 +34,70 @@ class SpyFuOutrankCollector:
         self.api_key = api_key
         self.session = requests.Session()
 
-    def get_where_outrank_you(
+    def get_most_valuable_keywords(
         self,
         domain: str,
-        compare_domain: str,
-        country_code: str = "FR",
-        page_size: int = 1000,
+        country_code: str = "US",
+        rowcount: int = 25,
         min_search_volume: Optional[int] = None,
-        min_seo_clicks: Optional[int] = None,
         sort_by: str = "SearchVolume"
     ) -> List[Dict]:
         """
-        Récupère les mots-clés où le concurrent surclasse votre domaine
+        Récupère les mots-clés SEO les plus précieux pour un domaine
 
         Args:
-            domain: Votre domaine
-            compare_domain: Domaine concurrent à comparer
-            country_code: Code pays (US, DE, GB, FR, etc.)
-            page_size: Nombre de résultats par page (max 10000)
+            domain: Domaine à analyser
+            country_code: Code pays (US, FR, GB, etc.)
+            rowcount: Nombre de résultats (max 25 selon budget)
             min_search_volume: Volume de recherche minimum
-            min_seo_clicks: Nombre minimum de clics SEO
-            sort_by: Tri (SearchVolume, KeywordDifficulty, Rank, etc.)
+            sort_by: Tri (SearchVolume, KeywordDifficulty, etc.)
 
         Returns:
-            Liste des mots-clés où le concurrent est mieux classé
+            Liste des mots-clés avec leurs métriques
         """
-        endpoint = f"{self.BASE_URL}/getWhereTheyOutRankYou"
+        endpoint = f"{self.BASE_URL}/getMostValuableKeywords"
 
         params = {
-            "query": domain,
-            "compareDomain": compare_domain,
+            "Query": domain,  # API utilise Query au lieu de domain
             "countryCode": country_code,
-            "pageSize": min(page_size, 10000),
-            "startingRow": 1,
+            "rowcount": rowcount,
             "sortBy": sort_by,
             "sortOrder": "Descending",
-            "adultFilter": True,
             "api_key": self.api_key
         }
 
         # Filtres optionnels
         if min_search_volume:
             params["searchVolume.min"] = min_search_volume
-        if min_seo_clicks:
-            params["seoClicks.min"] = min_seo_clicks
 
         headers = {
             "Accept": "application/json"
         }
 
         try:
-            print(f"⚔️  Comparaison: {compare_domain} vs {domain}...")
+            print(f"💎 Récupération des keywords les plus précieux pour {domain}...")
             response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
             response.raise_for_status()
 
             data = response.json()
             keywords = data.get("results", [])
 
-            print(f"✓ {len(keywords)} keywords où {compare_domain} surclasse {domain}")
+            print(f"✓ {len(keywords)} keywords précieux récupérés pour {domain}")
             return keywords
 
         except requests.exceptions.RequestException as e:
-            print(f"✗ Erreur API pour {domain} vs {compare_domain}: {e}")
+            print(f"✗ Erreur API pour {domain}: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 print(f"  Détails: {e.response.text}")
             return []
 
-    def parse_keyword_data(
-        self,
-        keyword_data: Dict,
-        domain: str,
-        compare_domain: str,
-        country_code: str
-    ) -> Dict:
+    def parse_keyword_data(self, keyword_data: Dict, domain: str, country_code: str) -> Dict:
         """
         Parse les données d'un mot-clé au format BigQuery
 
         Args:
             keyword_data: Données brutes du mot-clé depuis l'API
-            domain: Votre domaine
-            compare_domain: Domaine concurrent
+            domain: Domaine analysé
             country_code: Code pays
 
         Returns:
@@ -138,26 +106,25 @@ class SpyFuOutrankCollector:
         return {
             # Identifiants
             "domain": domain,
-            "compare_domain": compare_domain,
             "keyword": keyword_data.get("keyword"),
 
-            # Ranking du concurrent
+            # Ranking
             "top_ranked_url": keyword_data.get("topRankedUrl"),
             "rank": keyword_data.get("rank"),
             "rank_change": keyword_data.get("rankChange"),
 
-            # Votre ranking
-            "your_rank": keyword_data.get("yourRank"),
-            "your_rank_change": keyword_data.get("yourRankChange"),
-            "your_url": keyword_data.get("yourUrl"),
-
-            # Métriques SEO du concurrent
-            "seo_clicks": keyword_data.get("seoClicks"),
-            "seo_clicks_change": keyword_data.get("seoClicksChange"),
-
             # Métriques de recherche
             "search_volume": keyword_data.get("searchVolume"),
             "keyword_difficulty": keyword_data.get("keywordDifficulty"),
+
+            # CPC par match type
+            "broad_cost_per_click": keyword_data.get("broadCostPerClick"),
+            "phrase_cost_per_click": keyword_data.get("phraseCostPerClick"),
+            "exact_cost_per_click": keyword_data.get("exactCostPerClick"),
+
+            # Métriques SEO
+            "seo_clicks": keyword_data.get("seoClicks"),
+            "seo_clicks_change": keyword_data.get("seoClicksChange"),
             "total_monthly_clicks": keyword_data.get("totalMonthlyClicks"),
 
             # Pourcentages de recherche
@@ -166,11 +133,6 @@ class SpyFuOutrankCollector:
             "percent_not_clicked": keyword_data.get("percentNotClicked"),
             "percent_paid_clicks": keyword_data.get("percentPaidClicks"),
             "percent_organic_clicks": keyword_data.get("percentOrganicClicks"),
-
-            # CPC par match type
-            "broad_cost_per_click": keyword_data.get("broadCostPerClick"),
-            "phrase_cost_per_click": keyword_data.get("phraseCostPerClick"),
-            "exact_cost_per_click": keyword_data.get("exactCostPerClick"),
 
             # Coûts mensuels par match type
             "broad_monthly_cost": keyword_data.get("broadMonthlyCost"),
@@ -186,39 +148,40 @@ class SpyFuOutrankCollector:
             "retrieved_at": datetime.now()
         }
 
-    def collect_all_comparisons(
+    def collect_all_domains(
         self,
-        comparisons: Optional[List[Dict]] = None,
-        country_code: str = "FR",
+        domains: List[str],
+        country_code: str = "US",
+        rowcount: int = 25,
         min_search_volume: Optional[int] = None
     ) -> List[Dict]:
         """
-        Collecte les données pour toutes les comparaisons
+        Collecte les données pour tous les domaines
 
         Args:
-            comparisons: Liste des comparaisons {domain, compare_domain}
+            domains: Liste des domaines à analyser
             country_code: Code pays
+            rowcount: Nombre de résultats par domaine
             min_search_volume: Volume de recherche minimum
 
         Returns:
             Liste de tous les mots-clés formatés
         """
-        comparisons = comparisons or self.COMPARISONS
+        if not domains:
+            raise ValueError("La liste de domaines ne peut pas être vide")
+
         all_keywords = []
 
-        for comp in comparisons:
-            domain = comp["domain"]
-            compare_domain = comp["compare_domain"]
-
-            raw_keywords = self.get_where_outrank_you(
+        for domain in domains:
+            raw_keywords = self.get_most_valuable_keywords(
                 domain=domain,
-                compare_domain=compare_domain,
                 country_code=country_code,
+                rowcount=rowcount,
                 min_search_volume=min_search_volume
             )
 
             for kw in raw_keywords:
-                parsed = self.parse_keyword_data(kw, domain, compare_domain, country_code)
+                parsed = self.parse_keyword_data(kw, domain, country_code)
                 all_keywords.append(parsed)
 
         return all_keywords
@@ -229,13 +192,15 @@ class SpyFuOutrankCollector:
             print(f"⚠️  Aucune donnée à exporter")
             return
 
+        # Skip export en Cloud Functions
+        if os.getenv('FUNCTION_TARGET'):
+            return
+
         filepath = f"../data/{filename}"
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, default=str)
-
-        print(f"✓ Données exportées: {filepath}")
 
     def load_from_json(self, filename: str) -> List[Dict]:
         """
@@ -264,7 +229,7 @@ class SpyFuOutrankCollector:
         data: List[Dict],
         project_id: str,
         dataset_id: str = "spyfu",
-        table_id: str = "outrank_comparison",
+        table_id: str = "most_valuable_keywords",
         credentials_path: str = "../../account-key.json"
     ):
         """
@@ -283,15 +248,20 @@ class SpyFuOutrankCollector:
 
         try:
             # Préparer les credentials
-            credentials = service_account.Credentials.from_service_account_file(
-                credentials_path,
-                scopes=["https://www.googleapis.com/auth/bigquery"]
-            )
+            if os.getenv('FUNCTION_TARGET'):
+                credentials = None
+            elif credentials_path and os.path.exists(credentials_path):
+                credentials = service_account.Credentials.from_service_account_file(
+                    credentials_path,
+                    scopes=["https://www.googleapis.com/auth/bigquery"]
+                )
+            else:
+                credentials = None
 
             # Convertir en DataFrame
             df = pd.DataFrame(data)
 
-            # Filtrer uniquement les lignes avec domain NULL (requis par le schéma)
+            # Filtrer les lignes avec domain NULL
             initial_count = len(df)
             df = df.dropna(subset=['domain'])
             filtered_count = initial_count - len(df)
@@ -304,24 +274,13 @@ class SpyFuOutrankCollector:
                 return
 
             # Conversion des types pour BigQuery
-            import json
             for col in df.columns:
                 if df[col].dtype == 'object':
-                    # Vérifier si la colonne contient des listes ou dicts
-                    sample = df[col].dropna().iloc[0] if len(df[col].dropna()) > 0 else None
-                    if isinstance(sample, (list, dict)):
-                        # Convertir en JSON string
-                        df[col] = df[col].apply(lambda x: json.dumps(x) if isinstance(x, (list, dict)) else x)
+                    try:
+                        df[col] = pd.to_numeric(df[col])
+                    except (ValueError, TypeError):
                         df[col] = df[col].astype(str)
-                    else:
-                        # Pour les autres colonnes object, essayer de convertir en numérique
-                        try:
-                            df[col] = pd.to_numeric(df[col])
-                        except (ValueError, TypeError):
-                            # Garder comme string si conversion échoue
-                            df[col] = df[col].astype(str)
-                            # Remplacer 'None' string par None réel
-                            df[col] = df[col].replace('None', None)
+                        df[col] = df[col].replace('None', None)
 
             # Gérer les colonnes datetime
             if 'retrieved_at' in df.columns:
@@ -348,13 +307,10 @@ class SpyFuOutrankCollector:
 
 def main():
     """Point d'entrée principal"""
-    import sys
 
-    # ============================================================
-    # CHARGEMENT DE LA CONFIGURATION
-    # ============================================================
-    print("📋 Chargement de la configuration...")
-    config = load_config()
+    # Charger la configuration
+    is_cloud_function = os.getenv('FUNCTION_TARGET') is not None
+    config = load_config(skip_credentials_check=is_cloud_function)
 
     # Récupérer les configurations
     spyfu_config = config.get_spyfu_config()
@@ -362,15 +318,12 @@ def main():
 
     API_KEY = spyfu_config['api_key']
     PROJECT_ID = google_config['project_id']
-    DATASET_ID = google_config["datasets"]["spyfu"]
-    CREDENTIALS_PATH = google_config["credentials_file"]
+    DATASET_ID = google_config['datasets']['spyfu']
+    CREDENTIALS_PATH = google_config['credentials_file']
+    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
 
-    # Configuration outrank_comparison
-    specific_config = spyfu_config.get('outrank_comparison', {})
-    if not specific_config.get('enabled', True):
-        print("⚠️  outrank_comparison désactivé dans la configuration")
-        return
-
+    # Paramètres depuis le fichier .odt
+    ROWCOUNT = 25  # Selon le document .odt
 
     # Mode: "collect" ou "upload"
     mode = sys.argv[1] if len(sys.argv) > 1 else "collect"
@@ -378,23 +331,16 @@ def main():
     if mode == "upload":
         # Mode upload depuis JSON existant
         if len(sys.argv) < 3:
-            print("Usage: python spyfu_outrank_comparison.py upload <json_filename>")
-            print("Exemple: python spyfu_outrank_comparison.py upload spyfu_outrank_20250114_123456.json")
+            print("Usage: python spyfu_most_valuable_keywords.py upload <json_filename>")
             sys.exit(1)
 
         json_filename = sys.argv[2]
+        print("SpyFu Most Valuable Keywords - Upload depuis JSON")
 
-        print("=" * 60)
-        print("SpyFu Outrank Comparison - Upload depuis JSON")
-        print("=" * 60)
-
-        collector = SpyFuOutrankCollector(api_key=API_KEY)
-
-        # Charger depuis JSON
+        collector = SpyFuMostValuableCollector(api_key=API_KEY)
         keywords_data = collector.load_from_json(json_filename)
 
         if keywords_data:
-            # Upload vers BigQuery
             collector.upload_to_bigquery(
                 data=keywords_data,
                 project_id=PROJECT_ID,
@@ -407,55 +353,38 @@ def main():
 
     else:
         # Mode collection normal
-        # Récupérer les comparaisons depuis la configuration
-        COMPARISONS = spyfu_config.get('comparisons', [])
-        
-        if not COMPARISONS:
-            print("⚠️  Aucune comparaison configurée dans config.yaml")
-            print("   Ajoutez des comparaisons dans la section 'spyfu.comparisons'")
-            print("   Exemple:")
-            print("   comparisons:")
-            print("     - domain: 'votredomaine.com'")
-            print("       compare_domain: 'concurrent1.com'")
-            print("     - domain: 'votredomaine.com'")
-            print("       compare_domain: 'concurrent2.com'")
-            return
+        DOMAINS = spyfu_config['domains']['all']
 
-        print(f"📊 {len(COMPARISONS)} comparaison(s) configurée(s)")
-        for comp in COMPARISONS:
-            print(f"   • {comp['domain']} vs {comp['compare_domain']}")
+        print(f"SpyFu Most Valuable Keywords Collection")
+        print(f"📍 Pays: {COUNTRY_CODE}")
+        print(f"🌐 Domaines: {', '.join(DOMAINS)}")
+        print(f"📊 Rowcount: {ROWCOUNT} par domaine")
 
         # Initialiser le collecteur
-        collector = SpyFuOutrankCollector(api_key=API_KEY)
-        collector.COMPARISONS = COMPARISONS
+        collector = SpyFuMostValuableCollector(api_key=API_KEY)
 
         # Collecter les données
-        print("=" * 60)
-        print("SpyFu Outrank Comparison Collection")
-        print("=" * 60)
-
-        keywords_data = collector.collect_all_comparisons(
-            country_code="FR",
-            min_search_volume=100  # Optionnel: filtrer par volume minimum
+        keywords_data = collector.collect_all_domains(
+            domains=DOMAINS,
+            country_code=COUNTRY_CODE,
+            rowcount=ROWCOUNT
         )
 
-        print(f"\n✓ Total: {len(keywords_data)} comparaisons collectées")
+        print(f"\n✓ Total: {len(keywords_data)} keywords précieux collectés")
 
-        # Exporter en JSON (TOUJOURS avant BigQuery)
+        # Exporter en JSON
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        json_filename = f"spyfu_outrank_{timestamp}.json"
+        json_filename = f"spyfu_most_valuable_keywords_{timestamp}.json"
         collector.export_to_json(keywords_data, json_filename)
+        print(f"✓ Données sauvegardées: ../data/{json_filename}")
 
-        # Demander confirmation avant upload BigQuery
-        print(f"\n✓ Données sauvegardées: ../data/{json_filename}")
-
-        # Upload automatique vers BigQuery
+        # Upload vers BigQuery
         print("\n📤 Upload vers BigQuery...")
         collector.upload_to_bigquery(
             data=keywords_data,
             project_id=PROJECT_ID,
-                dataset_id=DATASET_ID,
-                credentials_path=CREDENTIALS_PATH
+            dataset_id=DATASET_ID,
+            credentials_path=CREDENTIALS_PATH
         )
         print("\n✓ Collection et upload terminés")
 

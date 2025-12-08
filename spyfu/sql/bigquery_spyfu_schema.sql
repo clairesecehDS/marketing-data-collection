@@ -729,6 +729,388 @@ ORDER BY total_monthly_clicks DESC;
 
 
 -- ============================================================
+-- Table pour les mots-clés avec gains de ranking (Gained Ranks)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `project-id.spyfu.gained_ranks_keywords` (
+  -- Identifiants
+  domain STRING NOT NULL,
+  keyword STRING,
+
+  -- Ranking
+  top_ranked_url STRING,
+  rank INT64,
+  rank_change INT64,
+
+  -- Métriques de recherche
+  search_volume INT64,
+  keyword_difficulty FLOAT64,
+
+  -- CPC par match type
+  broad_cost_per_click FLOAT64,
+  phrase_cost_per_click FLOAT64,
+  exact_cost_per_click FLOAT64,
+
+  -- Métriques SEO
+  seo_clicks INT64,
+  seo_clicks_change INT64,
+  total_monthly_clicks INT64,
+
+  -- Pourcentages de recherche
+  percent_mobile_searches FLOAT64,
+  percent_desktop_searches FLOAT64,
+  percent_not_clicked FLOAT64,
+  percent_paid_clicks FLOAT64,
+  percent_organic_clicks FLOAT64,
+
+  -- Coûts mensuels par match type
+  broad_monthly_cost FLOAT64,
+  phrase_monthly_cost FLOAT64,
+  exact_monthly_cost FLOAT64,
+
+  -- Métriques de compétition
+  paid_competitors INT64,
+  ranking_homepages INT64,
+
+  -- Comparaison (si compareDomain utilisé)
+  your_rank INT64,
+  your_rank_change INT64,
+  your_url STRING,
+
+  -- Métadonnées
+  country_code STRING DEFAULT 'FR',
+  retrieved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+)
+PARTITION BY DATE(retrieved_at)
+CLUSTER BY domain, keyword;
+
+
+-- Vue pour les meilleurs gains de ranking
+CREATE OR REPLACE VIEW `project-id.spyfu.top_gained_ranks` AS
+SELECT
+  domain,
+  keyword,
+  rank,
+  rank_change,
+  search_volume,
+  seo_clicks,
+  seo_clicks_change,
+  keyword_difficulty,
+  top_ranked_url,
+  retrieved_at
+FROM `project-id.spyfu.gained_ranks_keywords`
+WHERE rank_change < 0  -- Amélioration de position (nombre négatif)
+ORDER BY domain, rank_change ASC, search_volume DESC;
+
+
+-- Vue pour gains de ranking les plus impactants
+CREATE OR REPLACE VIEW `project-id.spyfu.most_impactful_gains` AS
+SELECT
+  domain,
+  keyword,
+  rank,
+  rank_change,
+  search_volume,
+  seo_clicks,
+  seo_clicks_change,
+  keyword_difficulty,
+  broad_cost_per_click,
+  top_ranked_url,
+  retrieved_at
+FROM `project-id.spyfu.gained_ranks_keywords`
+WHERE rank_change < 0
+  AND seo_clicks_change > 0
+  AND search_volume > 500
+ORDER BY domain, seo_clicks_change DESC;
+
+
+-- Vue pour analyse des gains par domaine
+CREATE OR REPLACE VIEW `project-id.spyfu.gained_ranks_summary` AS
+SELECT
+  domain,
+  COUNT(*) as total_gained_keywords,
+  AVG(rank_change) as avg_rank_improvement,
+  SUM(seo_clicks_change) as total_clicks_gained,
+  SUM(search_volume) as total_search_volume,
+  AVG(keyword_difficulty) as avg_difficulty,
+  retrieved_at
+FROM `project-id.spyfu.gained_ranks_keywords`
+WHERE rank_change < 0
+GROUP BY domain, retrieved_at
+ORDER BY total_clicks_gained DESC;
+
+
+-- ============================================================
+-- Table pour les mots-clés avec pertes de ranking (Lost Ranks)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `project-id.spyfu.lost_ranks_keywords` (
+  -- Identifiants
+  domain STRING NOT NULL,
+  keyword STRING,
+
+  -- Ranking
+  top_ranked_url STRING,
+  rank INT64,
+  rank_change INT64,
+
+  -- Métriques de recherche
+  search_volume INT64,
+  keyword_difficulty FLOAT64,
+
+  -- CPC par match type
+  broad_cost_per_click FLOAT64,
+  phrase_cost_per_click FLOAT64,
+  exact_cost_per_click FLOAT64,
+
+  -- Métriques SEO
+  seo_clicks INT64,
+  seo_clicks_change INT64,
+  total_monthly_clicks INT64,
+
+  -- Pourcentages de recherche
+  percent_mobile_searches FLOAT64,
+  percent_desktop_searches FLOAT64,
+  percent_not_clicked FLOAT64,
+  percent_paid_clicks FLOAT64,
+  percent_organic_clicks FLOAT64,
+
+  -- Coûts mensuels par match type
+  broad_monthly_cost FLOAT64,
+  phrase_monthly_cost FLOAT64,
+  exact_monthly_cost FLOAT64,
+
+  -- Métriques de compétition
+  paid_competitors INT64,
+  ranking_homepages INT64,
+
+  -- Comparaison (si compareDomain utilisé)
+  your_rank INT64,
+  your_rank_change INT64,
+  your_url STRING,
+
+  -- Métadonnées
+  country_code STRING DEFAULT 'FR',
+  retrieved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+)
+PARTITION BY DATE(retrieved_at)
+CLUSTER BY domain, keyword;
+
+
+-- Vue pour les plus grandes pertes de ranking
+CREATE OR REPLACE VIEW `project-id.spyfu.top_lost_ranks` AS
+SELECT
+  domain,
+  keyword,
+  rank,
+  rank_change,
+  search_volume,
+  seo_clicks,
+  seo_clicks_change,
+  keyword_difficulty,
+  top_ranked_url,
+  retrieved_at
+FROM `project-id.spyfu.lost_ranks_keywords`
+WHERE rank_change > 0  -- Perte de position (nombre positif)
+ORDER BY domain, rank_change DESC, search_volume DESC;
+
+
+-- Vue pour pertes de ranking les plus critiques
+CREATE OR REPLACE VIEW `project-id.spyfu.most_critical_losses` AS
+SELECT
+  domain,
+  keyword,
+  rank,
+  rank_change,
+  search_volume,
+  seo_clicks,
+  seo_clicks_change,
+  keyword_difficulty,
+  broad_cost_per_click,
+  top_ranked_url,
+  retrieved_at
+FROM `project-id.spyfu.lost_ranks_keywords`
+WHERE rank_change > 0
+  AND seo_clicks_change < 0
+  AND search_volume > 500
+ORDER BY domain, ABS(seo_clicks_change) DESC;
+
+
+-- Vue pour analyse des pertes par domaine
+CREATE OR REPLACE VIEW `project-id.spyfu.lost_ranks_summary` AS
+SELECT
+  domain,
+  COUNT(*) as total_lost_keywords,
+  AVG(rank_change) as avg_rank_decline,
+  SUM(seo_clicks_change) as total_clicks_lost,
+  SUM(search_volume) as total_search_volume,
+  AVG(keyword_difficulty) as avg_difficulty,
+  retrieved_at
+FROM `project-id.spyfu.lost_ranks_keywords`
+WHERE rank_change > 0
+GROUP BY domain, retrieved_at
+ORDER BY ABS(total_clicks_lost) DESC;
+
+
+-- Vue pour keywords à reconquérir (haute valeur perdue)
+CREATE OR REPLACE VIEW `project-id.spyfu.keywords_to_recover` AS
+SELECT
+  domain,
+  keyword,
+  rank,
+  rank_change,
+  search_volume,
+  seo_clicks,
+  seo_clicks_change,
+  keyword_difficulty,
+  broad_cost_per_click,
+  top_ranked_url,
+  retrieved_at
+FROM `project-id.spyfu.lost_ranks_keywords`
+WHERE rank_change > 0
+  AND search_volume > 1000
+  AND keyword_difficulty < 70
+  AND ABS(seo_clicks_change) > 50
+ORDER BY domain, search_volume DESC, ABS(seo_clicks_change) DESC;
+
+
+-- ============================================================
+-- Table pour les mots-clés avec pertes de clics (Lost Clicks)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `project-id.spyfu.lost_clicks_keywords` (
+  -- Identifiants
+  domain STRING NOT NULL,
+  keyword STRING,
+
+  -- Ranking
+  top_ranked_url STRING,
+  rank INT64,
+  rank_change INT64,
+
+  -- Métriques de recherche
+  search_volume INT64,
+  keyword_difficulty FLOAT64,
+
+  -- CPC par match type
+  broad_cost_per_click FLOAT64,
+  phrase_cost_per_click FLOAT64,
+  exact_cost_per_click FLOAT64,
+
+  -- Métriques SEO
+  seo_clicks INT64,
+  seo_clicks_change INT64,
+  total_monthly_clicks INT64,
+
+  -- Pourcentages de recherche
+  percent_mobile_searches FLOAT64,
+  percent_desktop_searches FLOAT64,
+  percent_not_clicked FLOAT64,
+  percent_paid_clicks FLOAT64,
+  percent_organic_clicks FLOAT64,
+
+  -- Coûts mensuels par match type
+  broad_monthly_cost FLOAT64,
+  phrase_monthly_cost FLOAT64,
+  exact_monthly_cost FLOAT64,
+
+  -- Métriques de compétition
+  paid_competitors INT64,
+  ranking_homepages INT64,
+
+  -- Comparaison (si compareDomain utilisé)
+  your_rank INT64,
+  your_rank_change INT64,
+  your_url STRING,
+
+  -- Métadonnées
+  country_code STRING DEFAULT 'FR',
+  retrieved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+)
+PARTITION BY DATE(retrieved_at)
+CLUSTER BY domain, keyword;
+
+
+-- Vue pour les plus grandes pertes de clics
+CREATE OR REPLACE VIEW `project-id.spyfu.top_lost_clicks` AS
+SELECT
+  domain,
+  keyword,
+  rank,
+  rank_change,
+  search_volume,
+  seo_clicks,
+  seo_clicks_change,
+  keyword_difficulty,
+  top_ranked_url,
+  retrieved_at
+FROM `project-id.spyfu.lost_clicks_keywords`
+WHERE seo_clicks_change < 0  -- Perte de clics (nombre négatif)
+ORDER BY domain, seo_clicks_change ASC, search_volume DESC;
+
+
+-- Vue pour pertes de clics les plus critiques
+CREATE OR REPLACE VIEW `project-id.spyfu.most_critical_click_losses` AS
+SELECT
+  domain,
+  keyword,
+  rank,
+  rank_change,
+  search_volume,
+  seo_clicks,
+  seo_clicks_change,
+  keyword_difficulty,
+  broad_cost_per_click,
+  top_ranked_url,
+  retrieved_at
+FROM `project-id.spyfu.lost_clicks_keywords`
+WHERE seo_clicks_change < 0
+  AND search_volume > 1000
+  AND ABS(seo_clicks_change) > 100
+ORDER BY domain, seo_clicks_change ASC;
+
+
+-- Vue pour analyse des pertes de clics par domaine
+CREATE OR REPLACE VIEW `project-id.spyfu.lost_clicks_summary` AS
+SELECT
+  domain,
+  COUNT(*) as total_keywords_losing_clicks,
+  SUM(seo_clicks_change) as total_clicks_lost,
+  AVG(seo_clicks_change) as avg_clicks_lost,
+  SUM(search_volume) as total_search_volume,
+  AVG(rank_change) as avg_rank_change,
+  AVG(keyword_difficulty) as avg_difficulty,
+  retrieved_at
+FROM `project-id.spyfu.lost_clicks_keywords`
+WHERE seo_clicks_change < 0
+GROUP BY domain, retrieved_at
+ORDER BY total_clicks_lost ASC;
+
+
+-- Vue pour opportunités de récupération de clics
+CREATE OR REPLACE VIEW `project-id.spyfu.clicks_recovery_opportunities` AS
+SELECT
+  domain,
+  keyword,
+  rank,
+  rank_change,
+  search_volume,
+  seo_clicks,
+  seo_clicks_change,
+  keyword_difficulty,
+  broad_cost_per_click,
+  (search_volume * broad_cost_per_click) as estimated_monthly_value,
+  top_ranked_url,
+  retrieved_at
+FROM `project-id.spyfu.lost_clicks_keywords`
+WHERE seo_clicks_change < 0
+  AND search_volume > 500
+  AND keyword_difficulty < 75
+  AND ABS(seo_clicks_change) > 50
+ORDER BY domain, ABS(seo_clicks_change) DESC, estimated_monthly_value DESC;
+
+
+-- ============================================================
 -- Table pour les concurrents PPC
 -- ============================================================
 
@@ -787,3 +1169,101 @@ FROM `project-id.spyfu.ppc_competitors` c1
 GROUP BY c1.competitor_domain, c1.retrieved_at
 HAVING competing_with_count > 1
 ORDER BY competing_with_count DESC, avg_common_terms DESC;
+
+
+-- ============================================================
+-- Table pour les concurrents combinés (SEO + PPC)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `project-id.spyfu.combined_competitors` (
+  -- Identifiants
+  domain STRING NOT NULL,
+  competitor_domain STRING NOT NULL,
+
+  -- Ranking combiné (FLOAT car l'API renvoie des scores normalisés entre 0 et 1)
+  combined_rank FLOAT64,
+
+  -- Métriques PPC (FLOAT car l'API peut renvoyer des scores normalisés)
+  ppc_common_terms FLOAT64,
+  ppc_rank FLOAT64,
+
+  -- Métriques SEO (FLOAT car l'API peut renvoyer des scores normalisés)
+  seo_common_terms FLOAT64,
+  seo_rank FLOAT64,
+
+  -- Métadonnées
+  country_code STRING DEFAULT 'FR',
+  retrieved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+)
+PARTITION BY DATE(retrieved_at)
+CLUSTER BY domain, competitor_domain;
+
+
+-- Vue pour les principaux concurrents combinés
+CREATE OR REPLACE VIEW `project-id.spyfu.top_combined_competitors` AS
+SELECT
+  domain,
+  competitor_domain,
+  combined_rank,
+  ppc_common_terms,
+  seo_common_terms,
+  (COALESCE(ppc_common_terms, 0) + COALESCE(seo_common_terms, 0)) as total_common_terms,
+  retrieved_at
+FROM `project-id.spyfu.combined_competitors`
+ORDER BY domain, combined_rank ASC;
+
+
+-- Vue pour analyse de la présence des concurrents (SEO vs PPC)
+CREATE OR REPLACE VIEW `project-id.spyfu.competitor_channel_analysis` AS
+SELECT
+  domain,
+  competitor_domain,
+  combined_rank,
+  CASE
+    WHEN ppc_common_terms IS NOT NULL AND seo_common_terms IS NOT NULL THEN 'Both SEO & PPC'
+    WHEN ppc_common_terms IS NOT NULL THEN 'PPC Only'
+    WHEN seo_common_terms IS NOT NULL THEN 'SEO Only'
+    ELSE 'Unknown'
+  END as channel_presence,
+  ppc_common_terms,
+  seo_common_terms,
+  retrieved_at
+FROM `project-id.spyfu.combined_competitors`
+ORDER BY domain, combined_rank ASC;
+
+
+-- Vue pour score de menace concurrentielle
+CREATE OR REPLACE VIEW `project-id.spyfu.competitor_threat_score` AS
+SELECT
+  domain,
+  competitor_domain,
+  combined_rank,
+  ppc_common_terms,
+  seo_common_terms,
+  (COALESCE(ppc_common_terms, 0) + COALESCE(seo_common_terms, 0)) as total_common_terms,
+  -- Score de menace (pondéré: plus le rank est bas et plus de termes communs = plus menaçant)
+  ROUND(
+    (COALESCE(ppc_common_terms, 0) + COALESCE(seo_common_terms, 0)) /
+    NULLIF(combined_rank, 0),
+    2
+  ) as threat_score,
+  retrieved_at
+FROM `project-id.spyfu.combined_competitors`
+WHERE combined_rank IS NOT NULL
+ORDER BY domain, threat_score DESC;
+
+
+-- Vue pour résumé de la concurrence par domaine
+CREATE OR REPLACE VIEW `project-id.spyfu.combined_competition_summary` AS
+SELECT
+  domain,
+  COUNT(DISTINCT competitor_domain) as total_competitors,
+  SUM(CASE WHEN ppc_common_terms IS NOT NULL AND seo_common_terms IS NOT NULL THEN 1 ELSE 0 END) as competitors_both_channels,
+  SUM(CASE WHEN ppc_common_terms IS NOT NULL AND seo_common_terms IS NULL THEN 1 ELSE 0 END) as competitors_ppc_only,
+  SUM(CASE WHEN seo_common_terms IS NOT NULL AND ppc_common_terms IS NULL THEN 1 ELSE 0 END) as competitors_seo_only,
+  AVG(ppc_common_terms) as avg_ppc_common_terms,
+  AVG(seo_common_terms) as avg_seo_common_terms,
+  retrieved_at
+FROM `project-id.spyfu.combined_competitors`
+GROUP BY domain, retrieved_at
+ORDER BY total_competitors DESC;

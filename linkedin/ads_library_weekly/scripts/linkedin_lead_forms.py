@@ -102,174 +102,6 @@ class LinkedInLeadFormsClient:
             print(f"✗ Erreur {response.status_code}: {response.text}")
             return {}
 
-    def get_campaigns_using_forms(self, account_id: str) -> Dict[str, List[str]]:
-        """
-        Récupère le mapping form_id -> campaign_ids en listant les campagnes
-        puis en vérifiant leurs creatives pour les lead forms
-        
-        Args:
-            account_id: ID du compte publicitaire
-            
-        Returns:
-            dict: Mapping {form_id: [campaign_id1, campaign_id2, ...]}
-        """
-        print(f"\n→ Récupération des campagnes utilisant les lead forms...")
-        
-        form_to_campaigns = {}
-        
-        try:
-            # Étape 1: Récupérer toutes les campagnes du compte
-            campaigns_url = f"{self.base_url}/adAccounts/{account_id}/adCampaigns"
-            campaigns_params = {"q": "search"}
-            
-            campaigns_response = requests.get(
-                campaigns_url,
-                headers=self._get_headers(),
-                params=campaigns_params
-            )
-            
-            if campaigns_response.status_code != 200:
-                print(f"⚠️  Erreur lors de la récupération des campagnes: {campaigns_response.status_code}")
-                return form_to_campaigns
-            
-            campaigns_data = campaigns_response.json()
-            campaigns = campaigns_data.get("elements", [])
-            print(f"  → {len(campaigns)} campagne(s) trouvée(s)")
-            
-            if not campaigns:
-                print(f"⚠️  Aucune campagne trouvée")
-                return form_to_campaigns
-            
-            # Étape 2: Récupérer tous les creatives avec projection complète
-            print(f"  → Récupération des creatives avec détails complets...")
-            
-            # Utiliser l'endpoint /adCreatives avec projection pour avoir callToAction et variables
-            creatives_url = f"{self.base_url}/adCreatives"
-            account_urn = f"urn:li:sponsoredAccount:{account_id}"
-            account_urn_encoded = account_urn.replace(':', '%3A')
-            
-            # Requête avec projection des champs nécessaires
-            params = {
-                "q": "search",
-                "search": f"(account:(values:List({account_urn_encoded})))",
-                "count": 100
-            }
-            
-            all_creatives = []
-            start = 0
-            
-            while True:
-                params["start"] = start
-                
-                # Construire l'URL manuellement pour éviter les problèmes d'encodage
-                query_parts = []
-                for key, value in params.items():
-                    if key == "start":
-                        query_parts.append(f"{key}={value}")
-                    elif key == "fields":
-                        query_parts.append(f"{key}={value}")
-                    elif key == "count":
-                        query_parts.append(f"{key}={value}")
-                    else:
-                        query_parts.append(f"{key}={value}")
-                
-                full_url = f"{creatives_url}?{'&'.join(query_parts)}"
-                
-                response = requests.get(full_url, headers=self._get_headers())
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    elements = data.get("elements", [])
-                    
-                    if not elements:
-                        break
-                    
-                    all_creatives.extend(elements)
-                    
-                    # Vérifier s'il y a plus de résultats
-                    paging = data.get("paging", {})
-                    if "next" not in paging:
-                        break
-                    
-                    start += len(elements)
-                else:
-                    print(f"⚠️  Erreur lors de la récupération des creatives: {response.status_code}")
-                    if start == 0:  # Première tentative
-                        print(f"     URL: {response.url}")
-                        print(f"     Réponse: {response.text[:300]}")
-                    break
-            
-            print(f"  → {len(all_creatives)} creative(s) récupérée(s)")
-            
-            # Analyser les creatives
-            for creative in all_creatives:
-                # DEBUG: Afficher la structure du premier creative
-                if not hasattr(self, '_debug_creative_shown'):
-                    print(f"\n  🔍 DEBUG - Structure d'un creative:")
-                    print(f"     Keys: {list(creative.keys())}")
-                    if "callToAction" in creative:
-                        print(f"     callToAction: {creative.get('callToAction')}")
-                    if "variables" in creative:
-                        variables = creative.get('variables', {})
-                        print(f"     variables keys: {list(variables.keys())}")
-                    print(f"\n     Full creative sample:")
-                    print(json.dumps(creative, indent=2)[:1000])
-                    print("...\n")
-                    self._debug_creative_shown = True
-                
-                lead_form_urn = None
-                
-                # 1. Dans callToAction.target (pour InMails et certains formats)
-                call_to_action = creative.get("callToAction", {})
-                cta_target = call_to_action.get("target")
-                if cta_target and ("adForm:" in str(cta_target) or "leadGenForm:" in str(cta_target)):
-                    lead_form_urn = cta_target
-                
-                # 2. Dans variables.data pour les creatives standard
-                if not lead_form_urn:
-                    variables = creative.get("variables", {})
-                    data_obj = variables.get("data", {})
-                    lead_form_urn = data_obj.get("com.linkedin.ads.LeadGenCreativeVariables", {}).get("leadGenFormUrn")
-                
-                # Extraire le form_id et campaign_id si trouvé
-                if lead_form_urn:
-                    form_id = None
-                    
-                    # Format: urn:li:adForm:123456
-                    if "adForm:" in str(lead_form_urn):
-                        form_id = str(lead_form_urn).split("adForm:")[-1].split(",")[0].split(")")[0]
-                    # Format: urn:li:leadGenForm:123456
-                    elif "leadGenForm:" in str(lead_form_urn):
-                        form_id = str(lead_form_urn).split("leadGenForm:")[-1].split(",")[0].split(")")[0]
-                    
-                    if form_id:
-                        # Récupérer le campaign_id du creative
-                        campaign_id_raw = creative.get("campaign")
-                        if campaign_id_raw:
-                            if isinstance(campaign_id_raw, int):
-                                campaign_id = str(campaign_id_raw)
-                            else:
-                                campaign_id = str(campaign_id_raw).split(":")[-1]
-                            
-                            if form_id not in form_to_campaigns:
-                                form_to_campaigns[form_id] = []
-                            if campaign_id not in form_to_campaigns[form_id]:
-                                form_to_campaigns[form_id].append(campaign_id)
-            
-            if form_to_campaigns:
-                print(f"✓ Mapping trouvé pour {len(form_to_campaigns)} formulaire(s)")
-                for form_id, campaign_ids in form_to_campaigns.items():
-                    print(f"  - Form {form_id}: {len(campaign_ids)} campagne(s)")
-            else:
-                print(f"⚠️  Aucun lead form trouvé dans les creatives")
-                
-        except Exception as e:
-            print(f"⚠️  Erreur lors de la récupération du mapping: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        return form_to_campaigns
-
     def get_lead_forms(self, account_id: str,
                        count: int = 100, start: int = 0) -> List[Dict]:
         """
@@ -539,43 +371,7 @@ class LinkedInLeadFormsClient:
             creative_id = None
             creative_urn = None
 
-            # DEBUG: Log pour vérifier la présence de leadMetadata (uniquement pour la première réponse)
-            if not hasattr(self, '_leadmetadata_debug_shown'):
-                lead_metadata_present = "leadMetadata" in response
-                sponsored_metadata_present = False
-                campaign_present = False
-                
-                if lead_metadata_present:
-                    lead_metadata_check = response.get("leadMetadata", {})
-                    sponsored_metadata_present = "sponsoredLeadMetadata" in lead_metadata_check
-                    if sponsored_metadata_present:
-                        sponsored_check = lead_metadata_check.get("sponsoredLeadMetadata", {})
-                        campaign_present = "campaign" in sponsored_check
-                        campaign_value = sponsored_check.get("campaign")
-                
-                print(f"\n🔍 DEBUG - Structure leadMetadata (première réponse):")
-                print(f"   leadMetadata présent: {lead_metadata_present}")
-                if lead_metadata_present:
-                    print(f"   leadMetadata.sponsoredLeadMetadata présent: {sponsored_metadata_present}")
-                    if sponsored_metadata_present:
-                        print(f"   leadMetadata.sponsoredLeadMetadata.campaign présent: {campaign_present}")
-                        if campaign_present:
-                            print(f"   Valeur: {campaign_value}")
-                print(f"   associatedEntityUrn présent: {'associatedEntityUrn' in response}")
-                if 'associatedEntityUrn' in response:
-                    print(f"   Valeur: {response.get('associatedEntityUrn')}\n")
-                self._leadmetadata_debug_shown = True
-
-            # Priorité 1: Récupérer depuis leadMetadata (nouveau format recommandé)
-            lead_metadata = response.get("leadMetadata", {})
-            if lead_metadata and "sponsoredLeadMetadata" in lead_metadata:
-                sponsored_metadata = lead_metadata.get("sponsoredLeadMetadata", {})
-                campaign_urn = sponsored_metadata.get("campaign")
-                if campaign_urn:
-                    campaign_id = campaign_urn.split(':')[-1] if isinstance(campaign_urn, str) else str(campaign_urn)
-            
-            # Priorité 2: Fallback sur associatedEntityUrn (ancien format)
-            if not campaign_id and response.get("associatedEntityUrn"):
+            if response.get("associatedEntityUrn"):
                 entity_urn = response.get("associatedEntityUrn")
                 if "sponsoredCampaign" in entity_urn:
                     campaign_urn = entity_urn
@@ -600,99 +396,32 @@ class LinkedInLeadFormsClient:
             custom_fields = {}
 
             # Parcourir les réponses pour extraire les champs standards
-            # LinkedIn ne fournit PAS de champ 'name' dans les réponses, seulement questionId
-            # Il faut donc identifier les champs par leur contenu en 2 passes
-            
-            # Liste des pays possibles (étendue)
-            COUNTRIES = [
-                "France", "Poland", "Germany", "Spain", "Italy", "UK", "United Kingdom",
-                "USA", "United States", "Canada", "Belgium", "Netherlands", "Switzerland",
-                "Portugal", "Austria", "Sweden", "Norway", "Denmark", "Finland", "Ireland",
-                "Luxembourg", "Greece", "Czech Republic", "Romania", "Hungary", "Bulgaria",
-                "Croatia", "Slovakia", "Slovenia", "Estonia", "Latvia", "Lithuania",
-                "Malta", "Cyprus", "Iceland", "Liechtenstein", "Monaco", "Andorra",
-                "Russia", "Ukraine", "Belarus", "Turkey", "Israel", "Egypt", "Morocco",
-                "Algeria", "Tunisia", "South Africa", "Nigeria", "Kenya", "Ghana",
-                "China", "Japan", "South Korea", "India", "Singapore", "Malaysia",
-                "Thailand", "Vietnam", "Indonesia", "Philippines", "Australia", "New Zealand",
-                "Brazil", "Mexico", "Argentina", "Chile", "Colombia", "Peru", "Venezuela"
-            ]
-            
             if form_data and "answers" in form_data:
-                # Première passe: collecter toutes les réponses et les classifier
-                classified_answers = {
-                    "email": None,
-                    "country": None,
-                    "phone": None,
-                    "names": [],  # Pour first_name, last_name
-                    "other": []   # Pour company, job_title
-                }
-                
                 for answer in form_data.get("answers", []):
-                    question_id = answer.get("questionId", "")
+                    question_id_raw = answer.get("questionId", "")
+                    question_id = str(question_id_raw) if question_id_raw else ""
                     answer_details = answer.get("answerDetails", {})
-                    
-                    # Récupérer la valeur de la réponse
-                    answer_value = None
-                    if "textQuestionAnswer" in answer_details:
-                        answer_value = answer_details.get("textQuestionAnswer", {}).get("answer")
-                    elif "multipleChoiceAnswer" in answer_details:
-                        options = answer_details.get("multipleChoiceAnswer", {}).get("options", [])
-                        answer_value = ",".join(map(str, options)) if options else None
+                    answer_value = answer_details.get("textQuestionAnswer", {}).get("answer")
 
-                    if not answer_value:
-                        continue
-                    
-                    answer_value_str = str(answer_value).strip()
-                    
-                    # Classification par type
-                    # 1. Email: contient @ et un point
-                    if "@" in answer_value_str and "." in answer_value_str:
-                        classified_answers["email"] = answer_value_str
-                    
-                    # 2. Pays: dans la liste des pays
-                    elif answer_value_str in COUNTRIES:
-                        classified_answers["country"] = answer_value_str
-                    
-                    # 3. Téléphone: commence par + ou format téléphone
-                    elif (answer_value_str.startswith("+") or 
-                          (all(c.isdigit() or c in " -.()" for c in answer_value_str) and 
-                           len(answer_value_str) >= 8 and
-                           sum(c.isdigit() for c in answer_value_str) >= 8)):
-                        classified_answers["phone"] = answer_value_str
-                    
-                    # 4. Noms courts (prénom/nom): 2-50 chars, pas de @ ni chiffres au début
-                    elif (len(answer_value_str) >= 2 and len(answer_value_str) <= 50 and 
-                          "@" not in answer_value_str and 
-                          not any(c.isdigit() for c in answer_value_str[:3]) and
-                          # Exclure si ça ressemble à une entreprise (contient certains mots-clés)
-                          not any(keyword in answer_value_str.lower() for keyword in 
-                                 [" inc", " ltd", " llc", " gmbh", " sarl", " sas", " sa ", "corporation", "company"])):
-                        classified_answers["names"].append(answer_value_str)
-                    
-                    # 5. Autres (company, job_title, etc.)
+                    # Mapper les questions aux champs (LinkedIn utilise des IDs standards)
+                    question_id_lower = question_id.lower()
+                    if "email" in question_id_lower or (answer_value and "@" in str(answer_value)):
+                        email_address = answer_value
+                    elif "firstName" in question_id or "first_name" in question_id_lower:
+                        first_name = answer_value
+                    elif "lastName" in question_id or "last_name" in question_id_lower:
+                        last_name = answer_value
+                    elif "company" in question_id_lower or "companyName" in question_id:
+                        company_name = answer_value
+                    elif "jobTitle" in question_id or "title" in question_id_lower:
+                        job_title = answer_value
+                    elif "phone" in question_id_lower:
+                        phone_number = answer_value
+                    elif "country" in question_id_lower:
+                        country = answer_value
                     else:
-                        classified_answers["other"].append(answer_value_str)
-                
-                # Deuxième passe: assigner aux bonnes variables
-                email_address = classified_answers["email"]
-                country = classified_answers["country"]
-                phone_number = classified_answers["phone"]
-                
-                # Noms: premier = first_name, second = last_name
-                if len(classified_answers["names"]) >= 1:
-                    first_name = classified_answers["names"][0]
-                if len(classified_answers["names"]) >= 2:
-                    last_name = classified_answers["names"][1]
-                
-                # Autres champs: premier = company (si long), sinon job_title
-                for other_value in classified_answers["other"]:
-                    if not company_name and len(other_value) > 5:
-                        company_name = other_value
-                    elif not job_title:
-                        job_title = other_value
-                    else:
-                        custom_fields[other_value[:20]] = other_value
+                        # Custom fields
+                        custom_fields[question_id] = answer_value
 
             # Consent (peut être dans un champ spécifique de l'API)
             if response.get("consentResponses"):
@@ -839,36 +568,21 @@ class LinkedInLeadFormsClient:
             print("   Première synchronisation")
             return None
 
-    def calculate_lead_form_metrics(self, responses_data: List[Dict], 
-                                   campaign_analytics: Optional[List[Dict]] = None,
-                                   form_to_campaigns: Optional[Dict[str, List[str]]] = None) -> List[Dict]:
+    def calculate_lead_form_metrics(self, responses_data: List[Dict]) -> List[Dict]:
         """
-        Calcule les métriques agrégées par form_id, campaign_id et date à partir des réponses
-        Enrichit avec les données de campaign analytics si disponibles
-        
-        Si campaign_id est manquant dans les réponses mais qu'un mapping form_to_campaigns
-        est fourni, utilise ce mapping pour retrouver les campagnes associées
+        Calcule les métriques agrégées par form_id et date à partir des réponses
 
         Args:
             responses_data: Liste des réponses de lead forms
-            campaign_analytics: Liste optionnelle des analytics de campagne pour enrichissement
-            form_to_campaigns: Mapping optionnel {form_id: [campaign_ids]} pour enrichir les données
 
         Returns:
-            list: Liste de métriques agrégées par formulaire, campagne et date
+            list: Liste de métriques agrégées par formulaire et date
         """
         if not responses_data:
             return []
 
         # Convertir en DataFrame pour faciliter les calculs
         df = pd.DataFrame(responses_data)
-        
-        # Créer un DataFrame des analytics si disponible
-        analytics_df = None
-        if campaign_analytics:
-            analytics_df = pd.DataFrame(campaign_analytics)
-            if 'date' in analytics_df.columns:
-                analytics_df['date'] = pd.to_datetime(analytics_df['date']).dt.date
 
         # Convertir submitted_at en date si c'est un timestamp
         if 'submitted_at' in df.columns and not df['submitted_at'].isna().all():
@@ -877,30 +591,10 @@ class LinkedInLeadFormsClient:
             print("⚠️  Pas de données submitted_at disponibles")
             return []
 
-        # Si le mapping form_to_campaigns est fourni et que campaign_id manque, l'ajouter
-        if form_to_campaigns and 'campaign_id' in df.columns:
-            for idx, row in df.iterrows():
-                if pd.isna(row['campaign_id']) and row['form_id'] in form_to_campaigns:
-                    # Prendre la première campagne du mapping (ou faire une métrique par campagne)
-                    campaign_ids = form_to_campaigns[row['form_id']]
-                    if campaign_ids:
-                        df.at[idx, 'campaign_id'] = campaign_ids[0]  # Utiliser la première campagne
-        
-        # Grouper par form_id, campaign_id (si disponible) et date
-        group_cols = ['form_id', 'date']
-        if 'campaign_id' in df.columns and df['campaign_id'].notna().any():
-            group_cols.insert(1, 'campaign_id')
-        
+        # Grouper par form_id et date
         metrics_list = []
 
-        for group_keys, group in df.groupby(group_cols):
-            # Extraire les clés du groupe
-            if len(group_cols) == 3:  # form_id, campaign_id, date
-                form_id, campaign_id, date = group_keys
-            else:  # form_id, date
-                form_id, date = group_keys
-                campaign_id = group['campaign_id'].iloc[0] if 'campaign_id' in group.columns else None
-            
+        for (form_id, date), group in df.groupby(['form_id', 'date']):
             total_leads = len(group)
 
             # Métriques de qualité des champs
@@ -975,46 +669,17 @@ class LinkedInLeadFormsClient:
                 if ft > fetch_sla_seconds:
                     sla_breach_count += 1
 
-            # Enrichir avec les données analytics si disponibles
-            impressions = None
-            clicks = None
-            ad_spend = None
-            submission_rate = None
-            conversion_rate = None
-            cost_per_lead = None
-            
-            if analytics_df is not None and campaign_id:
-                # Chercher les analytics pour cette campagne et date
-                analytics_match = analytics_df[
-                    (analytics_df['campaign_id'] == campaign_id) &
-                    (analytics_df['date'] == date)
-                ]
-                
-                if not analytics_match.empty:
-                    row = analytics_match.iloc[0]
-                    impressions = int(row['impressions']) if pd.notna(row.get('impressions')) else None
-                    clicks = int(row['clicks']) if pd.notna(row.get('clicks')) else None
-                    ad_spend = float(row['cost_in_usd']) if pd.notna(row.get('cost_in_usd')) else None
-                    
-                    # Calculer les taux
-                    if impressions and impressions > 0:
-                        submission_rate = round((total_leads / impressions) * 100, 2)
-                    if clicks and clicks > 0:
-                        conversion_rate = round((total_leads / clicks) * 100, 2)
-                    if ad_spend and ad_spend > 0 and total_leads > 0:
-                        cost_per_lead = round(ad_spend / total_leads, 2)
-            
             metrics = {
                 "form_id": form_id,
-                "campaign_id": campaign_id,
+                "campaign_id": None,  # Non disponible au niveau formulaire
                 "date": date.isoformat() if hasattr(date, 'isoformat') else str(date),
                 "total_leads": total_leads,
-                "impressions": impressions,
-                "clicks": clicks,
-                "ad_spend": ad_spend,
-                "submission_rate": submission_rate,
-                "conversion_rate": conversion_rate,
-                "cost_per_lead": cost_per_lead,
+                "impressions": None,  # Non disponible au niveau formulaire
+                "clicks": None,  # Non disponible au niveau formulaire
+                "ad_spend": None,  # Non disponible au niveau formulaire
+                "submission_rate": None,  # Nécessite impressions
+                "conversion_rate": None,  # Nécessite clicks
+                "cost_per_lead": None,  # Nécessite ad_spend
                 "avg_time_to_first_notification": avg_time_to_first_notification,
                 "avg_time_to_full_fetch": avg_time_to_full_fetch,
                 "field_completion_rate": field_completion_rate,
@@ -1136,33 +801,18 @@ class LinkedInLeadFormsClient:
             print(f"\n→ Upload vers BigQuery: {table_id}")
             print(f"  Nombre de lignes: {len(processed_data)}")
 
-            # Retry logic pour les erreurs réseau SSL/timeout
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    job = client.load_table_from_json(
-                        processed_data,
-                        table_id,
-                        job_config=job_config
-                    )
+            job = client.load_table_from_json(
+                processed_data,
+                table_id,
+                job_config=job_config
+            )
 
-                    # Attendre la fin du job
-                    job.result()
+            # Attendre la fin du job
+            job.result()
 
-                    # Vérifier le résultat
-                    table = client.get_table(table_id)
-                    print(f"✓ Upload réussi! Total lignes dans la table: {table.num_rows:,}")
-                    break  # Succès, sortir de la boucle
-
-                except Exception as upload_error:
-                    if attempt < max_retries - 1:
-                        import time
-                        wait_time = (attempt + 1) * 5  # 5s, 10s, 15s
-                        print(f"⚠️  Tentative {attempt + 1}/{max_retries} échouée: {upload_error}")
-                        print(f"   Nouvelle tentative dans {wait_time}s...")
-                        time.sleep(wait_time)
-                    else:
-                        raise  # Dernière tentative, propager l'erreur
+            # Vérifier le résultat
+            table = client.get_table(table_id)
+            print(f"✓ Upload réussi! Total lignes dans la table: {table.num_rows:,}")
 
         except Exception as e:
             print(f"✗ Erreur lors de l'upload vers BigQuery: {e}")
@@ -1328,78 +978,12 @@ def main():
             # Upload vers BigQuery (TRUNCATE = remplace toute la table)
             client.upload_to_bigquery(all_responses_data, "lead_form_responses", write_disposition="WRITE_TRUNCATE")
 
-            # Étape 3: Créer le mapping form_id -> campaign_ids
+            # Étape 3: Calculer et uploader les métriques
             print("\n" + "=" * 70)
-            print("3. Mapping formulaires ↔ campagnes")
-            print("=" * 70)
-            
-            form_to_campaigns = client.get_campaigns_using_forms(AD_ACCOUNT_ID)
-            
-            # Étape 4: Récupérer les analytics pour enrichir les métriques
-            print("\n" + "=" * 70)
-            print("4. Récupération des analytics de campagne")
-            print("=" * 70)
-            
-            campaign_analytics = []
-            try:
-                # Importer le client de campaign analytics
-                from .linkedin_campaign_analytics import LinkedInCampaignAnalytics
-                
-                analytics_client = LinkedInCampaignAnalytics(
-                    access_token=ACCESS_TOKEN,
-                    account_id=AD_ACCOUNT_ID,
-                    project_id=None,  # Pas besoin d'uploader
-                    dataset_id=None
-                )
-                
-                # Récupérer les campagnes liées aux leads (depuis les réponses + le mapping)
-                campaign_ids = set(r.get('campaign_id') for r in all_responses_data if r.get('campaign_id'))
-                
-                # Ajouter les campagnes du mapping
-                for form_id, mapped_campaigns in form_to_campaigns.items():
-                    campaign_ids.update(mapped_campaigns)
-                
-                # Filtrer les None
-                campaign_ids = {cid for cid in campaign_ids if cid}
-                
-                if campaign_ids:
-                    print(f"\n→ Récupération des analytics pour {len(campaign_ids)} campagne(s)...")
-                    
-                    # Créer les URNs
-                    campaign_urns = [f"urn:li:sponsoredCampaign:{cid}" for cid in campaign_ids]
-                    
-                    # Récupérer les analytics
-                    analytics = analytics_client.get_campaign_analytics(
-                        campaign_urns=campaign_urns,
-                        start_date=start_date,
-                        end_date=end_date
-                    )
-                    
-                    if analytics:
-                        campaign_analytics = analytics_client.extract_campaign_data(analytics)
-                        print(f"✓ {len(campaign_analytics)} lignes d'analytics récupérées")
-                    else:
-                        print("  Aucune analytics trouvée")
-                else:
-                    print("  Aucun campaign_id disponible")
-                    
-            except ImportError:
-                print("⚠️  Module linkedin_campaign_analytics non disponible")
-                print("   Les métriques seront calculées sans les données d'analytics")
-            except Exception as e:
-                print(f"⚠️  Erreur lors de la récupération des analytics: {e}")
-                print("   Les métriques seront calculées sans les données d'analytics")
-            
-            # Étape 5: Calculer et uploader les métriques
-            print("\n" + "=" * 70)
-            print("5. Calcul des métriques de lead forms")
+            print("3. Calcul des métriques de lead forms")
             print("=" * 70)
 
-            metrics_data = client.calculate_lead_form_metrics(
-                all_responses_data, 
-                campaign_analytics=campaign_analytics if campaign_analytics else None,
-                form_to_campaigns=form_to_campaigns
-            )
+            metrics_data = client.calculate_lead_form_metrics(all_responses_data)
 
             if metrics_data:
                 # Afficher un résumé
