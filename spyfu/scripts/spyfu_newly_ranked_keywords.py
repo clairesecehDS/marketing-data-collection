@@ -117,10 +117,7 @@ class SpyFuNewlyRankedCollector:
             # Ranking
             "top_ranked_url": keyword_data.get("topRankedUrl"),
             "rank": keyword_data.get("rank"),
-            "rank_change": keyword_data.get("rankChange"),
-            "your_rank": keyword_data.get("yourRank"),
-            "your_rank_change": keyword_data.get("yourRankChange"),
-            "your_url": keyword_data.get("yourUrl"),
+            # Note: rank_change, your_rank, your_rank_change, your_url ne sont pas dans le schéma BigQuery
 
             # Métriques de recherche
             "search_volume": keyword_data.get("searchVolume"),
@@ -332,7 +329,8 @@ def main():
     PROJECT_ID = google_config['project_id']
     DATASET_ID = google_config['datasets']['spyfu']
     CREDENTIALS_PATH = google_config['credentials_file']
-    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
+    # Essayer d'abord spyfu.global.country_code, puis spyfu.country_code, par défaut US
+    COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code') or spyfu_config.get('country_code', 'US')
 
     # Mode: "collect" ou "upload"
     mode = sys.argv[1] if len(sys.argv) > 1 else "collect"

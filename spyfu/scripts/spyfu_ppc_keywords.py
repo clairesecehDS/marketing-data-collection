@@ -373,7 +373,9 @@ def main():
     # Récupérer les configurations
     spyfu_config = config.get_spyfu_config()
     google_config = config.get_google_cloud_config()
-    ppc_config = spyfu_config['endpoints']['ppc_keywords']
+
+    # Essayer d'abord spyfu.ppc_keywords, puis spyfu.endpoints.ppc_keywords
+    ppc_config = spyfu_config.get('ppc_keywords', spyfu_config.get('endpoints', {}).get('ppc_keywords', {}))
 
     API_KEY = spyfu_config['api_key']
     PROJECT_ID = google_config['project_id']
@@ -381,7 +383,8 @@ def main():
     CREDENTIALS_PATH = google_config["credentials_file"]
     DATASET_ID = google_config['datasets']['spyfu']
     CREDENTIALS_FILE = google_config['credentials_file']
-    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
+    # Essayer d'abord spyfu.global.country_code, puis spyfu.country_code, par défaut US
+    COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code') or spyfu_config.get('country_code', 'US')
     PAGE_SIZE = spyfu_config.get('page_size', 1000)
 
     # Mode: "collect" ou "upload"

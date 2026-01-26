@@ -380,7 +380,8 @@ def main():
     PROJECT_ID = google_config['project_id']
     DATASET_ID = google_config["datasets"]["spyfu"]
     CREDENTIALS_PATH = google_config["credentials_file"]
-    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
+    # Essayer d'abord spyfu.global.country_code, puis spyfu.country_code, par défaut US
+    COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code') or spyfu_config.get('country_code', 'US')
 
     # Configuration top_pages
     specific_config = spyfu_config.get('top_pages', {})

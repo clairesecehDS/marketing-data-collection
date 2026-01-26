@@ -404,7 +404,8 @@ def main():
     # Paramètres depuis la configuration
     DOMAINS = spyfu_config['domains']['all']
     SEARCH_TYPE = seo_config.get('search_type', 'MostValuable')
-    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
+    # Essayer d'abord spyfu.global.country_code, puis spyfu.country_code, par défaut US
+    COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code') or spyfu_config.get('country_code', 'US')
     MIN_SEARCH_VOLUME = seo_config.get('filters', {}).get('min_search_volume', 100)
     MIN_SEO_CLICKS = seo_config.get('filters', {}).get('min_seo_clicks', 10)
     SORT_BY = seo_config.get('sort_by', 'SearchVolume')
@@ -457,7 +458,7 @@ def main():
         print()
 
         # Initialiser le collecteur
-        collector = SpyFuSeoKeywordsCollector(api_key=API_KEY)
+        collector = SpyFuSeoCollector(api_key=API_KEY)
 
         # Collecter les données
         keywords_data = collector.collect_all_domains(

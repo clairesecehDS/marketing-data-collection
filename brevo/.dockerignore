@@ -1,0 +1,58 @@
+# Fichiers à exclure du build Docker
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Data et logs
+data/
+logs/
+*.log
+
+# Documentation
+README.md
+GUIDE_COMPLET.md
+*.md
+
+# Tests
+test_*.py
+debug_*.py
+
+# Fichiers temporaires
+*.tmp
+*.bak
+.DS_Store

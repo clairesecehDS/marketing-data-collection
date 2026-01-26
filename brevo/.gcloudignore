@@ -1,0 +1,78 @@
+# Fichiers à exclure lors de l'upload vers Cloud Build
+# Ce fichier contrôle ce qui est envoyé à Cloud Build
+# IMPORTANT: config.yaml DOIT être inclus pour le build Docker
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Data et logs
+data/
+logs/
+*.log
+
+# Documentation (on n'en a pas besoin dans le build)
+README.md
+GUIDE_COMPLET.md
+DEPLOYMENT_GUIDE.md
+
+# Tests et debug (pas nécessaires dans le build)
+test_*.py
+debug_*.py
+
+# Scripts de déploiement (pas nécessaires dans l'image)
+deploy_cloud_run_job.sh
+setup_scheduler.sh
+
+# Fichiers temporaires
+*.tmp
+*.bak
+.DS_Store
+
+# Credentials locales (seront montées via Secret Manager)
+../account-key.json
+account-key.json
+*.json
+!package.json
+
+# IMPORTANT: Ne PAS exclure ces fichiers nécessaires au build:
+# - config.yaml
+# - requirements.txt
+# - sync_brevo_data.py
+# - Dockerfile
+# - scripts/
+# - sql/

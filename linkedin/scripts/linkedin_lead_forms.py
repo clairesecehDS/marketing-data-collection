@@ -1267,8 +1267,8 @@ def main():
         client.export_to_json(forms_data, "lead_forms.json")
         client.export_to_csv(forms_data, "lead_forms.csv")
 
-        # Upload vers BigQuery (TRUNCATE = remplace toute la table)
-        client.upload_to_bigquery(forms_data, "lead_forms", write_disposition="WRITE_TRUNCATE")
+        # Upload vers BigQuery (APPEND = ajoute les données sans supprimer l'existant)
+        client.upload_to_bigquery(forms_data, "lead_forms", write_disposition="WRITE_APPEND")
 
     except Exception as e:
         print(f"✗ Erreur: {e}")
@@ -1325,8 +1325,8 @@ def main():
             client.export_to_json(all_responses_data, "lead_form_responses.json")
             client.export_to_csv(all_responses_data, "lead_form_responses.csv")
 
-            # Upload vers BigQuery (TRUNCATE = remplace toute la table)
-            client.upload_to_bigquery(all_responses_data, "lead_form_responses", write_disposition="WRITE_TRUNCATE")
+            # Upload vers BigQuery (APPEND = ajoute les données sans supprimer l'existant)
+            client.upload_to_bigquery(all_responses_data, "lead_form_responses", write_disposition="WRITE_APPEND")
 
             # Étape 3: Créer le mapping form_id -> campaign_ids
             print("\n" + "=" * 70)
@@ -1416,8 +1416,8 @@ def main():
                 client.export_to_json(metrics_data, "lead_form_metrics.json")
                 client.export_to_csv(metrics_data, "lead_form_metrics.csv")
 
-                # Upload vers BigQuery (TRUNCATE = remplace toute la table)
-                client.upload_to_bigquery(metrics_data, "lead_form_metrics", write_disposition="WRITE_TRUNCATE")
+                # Upload vers BigQuery (APPEND = ajoute les données sans supprimer l'existant)
+                client.upload_to_bigquery(metrics_data, "lead_form_metrics", write_disposition="WRITE_APPEND")
 
         print("\n" + "=" * 70)
         print("✓ EXTRACTION LEAD FORMS TERMINÉE!")

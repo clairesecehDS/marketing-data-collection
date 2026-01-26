@@ -19,9 +19,10 @@ Centraliser et historiser toutes vos données marketing dans BigQuery pour :
 
 | Source | Données collectées | Tables | Fréquence recommandée |
 |--------|-------------------|--------|------------------------|
-| **LinkedIn Ads** | Campagnes, budgets, creatives, lead forms, ads library | 8 tables | Quotidien/Hebdomadaire |
+| **LinkedIn Ads** | Campagnes, budgets, creatives, lead forms, ads library | 8 tables | Hebdomadaire |
 | **Microsoft Clarity** | Comportement utilisateur, frustration, engagement | 1 table | Quotidien (obligatoire) |
-| **SpyFu** | SEO/PPC concurrentiel, keywords, domaines, annonces | 11 tables | Mensuel/Trimestriel |
+| **SpyFu** | SEO/PPC concurrentiel, keywords, domaines, annonces | 11 tables | Mensuel |
+| **Brevo** | Campagnes email, événements, listes contacts | 3 tables | Hebdomadaire |
 
 ---
 
@@ -67,6 +68,10 @@ python clarity_analytics.py
 # SpyFu Keywords
 cd spyfu/scripts
 python spyfu_ppc_keywords.py
+
+# Brevo Email Marketing
+cd brevo
+python sync_brevo_data.py
 ```
 
 ---
@@ -97,6 +102,12 @@ python spyfu_ppc_keywords.py
   - 11 tables + 25 vues BigQuery
   - Configuration domaines et concurrents
   - Filtres et paramètres
+
+- **[brevo/README.md](brevo/README.md)** - Documentation Brevo
+  - Synchronisation campagnes email
+  - Événements marketing (opens, clicks, bounces)
+  - Listes de contacts et rapports SMTP
+  - Cloud Run Job + Cloud Scheduler automatisé
 
 ---
 
@@ -163,20 +174,19 @@ marketing-data-collection/
 │   │   └── bigquery_spyfu_complete_schema.sql  # Schéma complet (11 tables + 25 vues)
 │   └── data/
 │
-├── spyfu-monthly/              # Cloud Function SpyFu mensuel (déploiement séparé)
-│   ├── main.py
+├── brevo/
+│   ├── README.md
+│   ├── sync_brevo_data.py      # Script principal de synchronisation
 │   ├── config.yaml
-│   └── scripts/
-│
-├── spyfu-quarterly/            # Cloud Function SpyFu trimestriel (déploiement séparé)
-│   ├── main.py
-│   ├── config.yaml
-│   └── scripts/
-│
-├── spyfu-on-demand/            # Cloud Function SpyFu on-demand (déploiement séparé)
-│   ├── main.py
-│   ├── config.yaml
-│   └── scripts/
+│   ├── scripts/
+│   │   ├── fetch_campaigns.py          # Récupération campagnes → 1 table
+│   │   ├── fetch_events.py             # Récupération événements → 1 table
+│   │   ├── fetch_contacts_lists.py     # Récupération listes contacts → 1 table
+│   │   ├── fetch_smtp_reports.py       # Récupération rapports SMTP → 1 table
+│   │   └── upload_to_bigquery.py       # Upload vers BigQuery
+│   ├── sql/
+│   │   └── bigquery_brevo_schema.sql   # Schéma complet (4 tables)
+│   └── data/
 │
 ├── SETUP_GUIDE.md              # Guide de configuration complet
 └── README.md                   # Ce fichier
@@ -215,58 +225,9 @@ Voir [SETUP_GUIDE.md - Configuration détaillée](SETUP_GUIDE.md#️-configurati
 
 ---
 
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   Sources de données                        │
-├──────────────┬──────────────────┬──────────────────────────┤
-│ LinkedIn Ads │ Microsoft Clarity│      SpyFu API           │
-│  OAuth 2.0   │    API Key       │      API Key             │
-└──────┬───────┴────────┬─────────┴──────────┬───────────────┘
-       │                │                    │
-       v                v                    v
-┌─────────────────────────────────────────────────────────────┐
-│              Scripts Python (ce repository)                 │
-│     ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │
-│     │  linkedin/  │  │  clarity/   │  │   spyfu/    │      │
-│     │  scripts/   │  │  scripts/   │  │   scripts/  │      │
-│     └─────────────┘  └─────────────┘  └─────────────┘      │
-│                           │                                 │
-│                    JSON Backup (data/)                      │
-└───────────────────────────┼─────────────────────────────────┘
-                            │ Service Account
-                            v
-                    ┌─────────────────┐
-                    │   BigQuery      │
-                    │ (Google Cloud)  │
-                    │                 │
-                    │  ┌───────────┐  │
-                    │  │ linkedin  │  │
-                    │  ├───────────┤  │
-                    │  │ clarity   │  │
-                    │  ├───────────┤  │
-                    │  │ spyfu     │  │
-                    │  └───────────┘  │
-                    └─────────────────┘
-                            │
-                            v
-                    ┌─────────────────┐
-                    │  Looker Studio  │
-                    │  Data Studio    │
-                    │  Tableau, etc.  │
-                    └─────────────────┘
-```
-
----
-
 ## 📊 Tables BigQuery et Métriques
 
 ### Vue d'ensemble du projet BigQuery
-
-**Projet:** `ecoledesponts`
-
-Le projet contient **323 tables** réparties sur **12 datasets** :
 
 | Dataset | Nombre de tables | Description |
 |---------|------------------|-------------|
@@ -282,254 +243,35 @@ Le projet contient **323 tables** réparties sur **12 datasets** :
 | **`linkedin_leadgen_form`** | **7** | **LinkedIn Lead Gen Forms - 3 tables + 4 vues** |
 | **`microsoft_clarity`** | **1** | **Microsoft Clarity - 1 table** |
 | **`spyfu`** | **36** | **SpyFu - 11 tables + 25 vues** |
+| **`brevo`** | **3** | **Brevo Email Marketing - 3 tables** |
 
-**Total:** 323 tables
+**Total:** 326 tables
 
 Pour consulter le schéma détaillé de TOUTES les tables (colonnes, types, descriptions), voir **[BIGQUERY_SCHEMAS.md](BIGQUERY_SCHEMAS.md)**.
 
-Les sections ci-dessous détaillent uniquement les tables créées par ce projet (LinkedIn, Clarity, SpyFu).
+**Déploiement automatisé:**
 
----
-
-### LinkedIn Ads Advertising (4 tables + 6 vues)
-
-#### Table `campaign_analytics`
-**Script:** [linkedin_campaign_analytics.py](linkedin/scripts/linkedin_campaign_analytics.py)
-**Métriques collectées (25 colonnes):**
-- **Identifiants:** campaign_id, campaign_urn
-- **Période:** date_range_start, date_range_end
-- **Métriques de base:** impressions, clicks, cost_in_usd
-- **Performance:** ctr, cpc, cpm
-- **Engagement:** reactions, comments, shares, total_engagements, engagement_rate
-- **Conversions:** landing_page_clicks, one_click_leads, external_website_conversions, external_website_post_click_conversions, external_website_post_view_conversions
-- **Vidéo:** video_views, video_starts, video_completions
-- **Reach:** approximate_member_reach
-- **Métadonnées:** retrieved_at, updated_at
-
-#### Table `creative_analytics`
-**Script:** [linkedin_campaign_analytics.py](linkedin/scripts/linkedin_campaign_analytics.py)
-**Métriques collectées (25 colonnes):**
-- **Identifiants:** creative_id, creative_urn
-- **Période:** date_range_start, date_range_end
-- **Métriques de base:** impressions, clicks, cost_in_usd
-- **Performance:** ctr, cpc, cpm
-- **Engagement:** reactions, comments, shares, total_engagements, engagement_rate
-- **Conversions:** landing_page_clicks, one_click_leads, external_website_conversions, external_website_post_click_conversions, external_website_post_view_conversions
-- **Vidéo:** video_views, video_starts, video_completions
-- **Reach:** approximate_member_reach
-- **Métadonnées:** retrieved_at, updated_at
-
-#### Table `campaign_budget`
-**Script:** [linkedin_budget.py](linkedin/scripts/linkedin_budget.py)
-**Métriques collectées (21 colonnes):**
-- **Identifiants:** campaign_id, campaign_urn
-- **Budget:** total_budget, daily_budget, lifetime_budget, budget_remaining, budget_spent, billing_currency
-- **Bid:** bid_type, bid_amount, bid_multiplier, bid_adjustment_type, min_bid, max_bid
-- **Pacing:** pacing_type, pacing_rate
-- **Dates:** start_date, end_date
-- **Métadonnées:** retrieved_at, updated_at
-
-#### Table `creative_budget`
-**Script:** [linkedin_budget.py](linkedin/scripts/linkedin_budget.py)
-**Métriques collectées (23 colonnes):**
-- **Identifiants:** creative_id, creative_urn, campaign_id, campaign_urn
-- **Budget:** total_budget, daily_budget, lifetime_budget, budget_remaining, budget_spent, billing_currency
-- **Bid:** bid_type, bid_amount, bid_multiplier, bid_adjustment_type, min_bid, max_bid
-- **Pacing:** pacing_type, pacing_rate
-- **Dates:** start_date, end_date
-- **Métadonnées:** retrieved_at, updated_at
-
-**Vues (6) :** v_active_campaign_budgets, v_campaign_budget_summary, v_campaign_creative_reconciliation, v_latest_campaign_metrics, v_overall_performance, v_top_creatives_by_campaign
-
----
-
-### LinkedIn Ads Library (1 table)
-
-#### Table `ads_library`
-**Script:** [linkedin_ads_library.py](linkedin/scripts/linkedin_ads_library.py)
-**Métriques collectées (26 colonnes):**
-- **Recherche:** Keyword, Countries, Date_Range, Paging_Context
-- **Annonceur:** Advertiser, Advertiser_Name, Advertiser_URL, Ad_Payer
-- **Publicité:** Ad_URL, Ad_Type
-- **Restrictions:** Is_Restricted, Restriction_Details
-- **Ciblage:** Facet_Name, Is_Inclusive, Inclusive_Segments, Is_Exclusive, Exclusive_Segments
-- **Impressions:** First_Impression_Date, Latest_Impression_Date, Total_Impressions_Range, Impressions_Distribution_by_Country
-- **Métadonnées:** Retrieved_At
-
----
-
-### LinkedIn Lead Gen Forms (3 tables + 4 vues)
-
-#### Table `lead_forms`
-**Script:** [linkedin_lead_forms.py](linkedin/scripts/linkedin_lead_forms.py)
-**Métriques collectées (14 colonnes):**
-- **Identifiants:** form_id, lead_form_urn, organization_id, ad_account_id
-- **Information:** name, locale, status, lead_type
-- **Configuration:** privacy_policy_url, custom_disclaimer, confirmation_message
-- **Métadonnées:** created_at, last_modified_at, retrieved_at, updated_at
-
-#### Table `lead_form_responses`
-**Script:** [linkedin_lead_forms.py](linkedin/scripts/linkedin_lead_forms.py)
-**Métriques collectées (22 colonnes):**
-- **Identifiants:** lead_response_id, form_id, organization_id, ad_account_id, lead_type
-- **Timing:** submitted_at, notification_received_at, fetched_at
-- **Lead Info:** first_name, last_name, email_address, phone_number, company_name, job_title, country
-- **Attribution:** campaign_id, campaign_group_id, creative_id, device_type
-- **Custom:** custom_fields (JSON), consent_granted, form_data (JSON)
-- **Métadonnées:** retrieved_at, updated_at
-
-#### Table `lead_form_metrics`
-**Script:** [linkedin_lead_forms.py](linkedin/scripts/linkedin_lead_forms.py)
-**Métriques collectées (20 colonnes):**
-- **Identifiants:** form_id, campaign_id, date
-- **Volume:** total_leads, impressions, clicks, ad_spend
-- **Performance:** submission_rate, conversion_rate, cost_per_lead
-- **Timing:** avg_time_to_first_notification, avg_time_to_full_fetch
-- **Qualité:** field_completion_rate, consent_opt_in_rate, email_validity_rate, lead_quality_score
-- **Conversion:** lead_to_opportunity_count, lead_to_opportunity_rate
-- **SLA:** sla_breach_count, anomaly_detected, anomaly_description
-- **Métadonnées:** calculated_at, updated_at
-
-**Vues (4) :** v_lead_quality_dashboard, v_lead_performance_by_campaign, v_lead_sla_monitoring, v_lead_volume_anomalies
-
----
-
-### Microsoft Clarity (1 table)
-
-#### Table `clarity_metrics`
-**Script:** [clarity_analytics.py](microsoft_clarity/scripts/clarity_analytics.py)
-**Métriques collectées (structures RECORD/STRUCT):**
-- **Base:** date, retrieved_at, url, visits_count
-- **Scroll Depth:** percentage_0_10, percentage_11_25, percentage_26_50, percentage_51_75, percentage_76_100, average_scroll_depth
-- **Engagement Time:** total_time, active_time
-- **Traffic:** total_session_count, total_bot_session_count, distinct_user_count, pages_per_session
-- **Dimensions (ARRAY):** browser, device, os, country, page_title, referrer_url
-- **Frustration Signals:** dead_clicks, excessive_scroll, rage_clicks, quick_backs
-- **JavaScript Errors:** error_clicks, javascript_errors
-
----
-
-### SpyFu (11 tables + 25 vues)
-
-#### Table `ppc_keywords`
-**Script:** [spyfu_ppc_keywords.py](spyfu/scripts/spyfu_ppc_keywords.py) - **Mensuel**
-**Métriques collectées (32 colonnes):**
-- **Identifiants:** domain, keyword
-- **Recherche:** search_volume, live_search_volume, ranking_difficulty, total_monthly_clicks
-- **Pourcentages:** percent_mobile_searches, percent_desktop_searches, percent_searches_not_clicked, percent_paid_clicks, percent_organic_clicks
-- **CPC:** broad_cost_per_click, phrase_cost_per_click, exact_cost_per_click
-- **Clics mensuels:** broad_monthly_clicks, phrase_monthly_clicks, exact_monthly_clicks
-- **Coûts mensuels:** broad_monthly_cost, phrase_monthly_cost, exact_monthly_cost
-- **Compétition:** paid_competitors, distinct_competitors, ranking_homepages
-- **SERP:** serp_features_csv, serp_first_result
-- **Flags:** is_question, is_not_safe_for_work
-- **Métadonnées:** country_code, retrieved_at
-
-#### Table `new_keywords`
-**Script:** [spyfu_new_keywords.py](spyfu/scripts/spyfu_new_keywords.py) - **Mensuel**
-**Métriques collectées (32 colonnes):** Identiques à ppc_keywords
-
-#### Table `related_keywords`
-**Script:** [spyfu_related_keywords.py](spyfu/scripts/spyfu_related_keywords.py) - **À la demande**
-**Métriques collectées :** Mots-clés associés et suggestions pour un keyword donné
-
-#### Table `term_domain_stats`
-**Métriques collectées :** Statistiques de domaine pour des termes spécifiques
-
-#### Table `seo_keywords`
-**Script:** [spyfu_seo_keywords.py](spyfu/scripts/spyfu_seo_keywords.py) - **Mensuel**
-**Métriques collectées (30 colonnes):**
-- **Identifiants:** domain, keyword, search_type
-- **Ranking:** top_ranked_url, rank, rank_change
-- **Recherche:** search_volume, keyword_difficulty
-- **CPC:** broad_cost_per_click, phrase_cost_per_click, exact_cost_per_click
-- **SEO:** seo_clicks, seo_clicks_change, total_monthly_clicks
-- **Pourcentages:** percent_mobile_searches, percent_desktop_searches, percent_not_clicked, percent_paid_clicks, percent_organic_clicks
-- **Coûts:** broad_monthly_cost, phrase_monthly_cost, exact_monthly_cost
-- **Compétition:** paid_competitors, ranking_homepages
-- **Métadonnées:** country_code, retrieved_at
-
-#### Table `most_valuable_keywords`
-**Script:** [spyfu_most_valuable_keywords.py](spyfu/scripts/spyfu_most_valuable_keywords.py) - **Mensuel**
-**Métriques collectées (29 colonnes):**
-- **Identifiants:** domain, keyword
-- **Ranking:** top_ranked_url, rank, rank_change
-- **Recherche:** search_volume, keyword_difficulty
-- **CPC:** broad_cost_per_click, phrase_cost_per_click, exact_cost_per_click
-- **SEO:** seo_clicks, seo_clicks_change, total_monthly_clicks
-- **Pourcentages:** percent_mobile_searches, percent_desktop_searches, percent_not_clicked, percent_paid_clicks, percent_organic_clicks
-- **Coûts:** broad_monthly_cost, phrase_monthly_cost, exact_monthly_cost
-- **Compétition:** paid_competitors, ranking_homepages
-- **Métadonnées:** country_code, retrieved_at
-
-#### Table `newly_ranked_keywords`
-**Script:** [spyfu_newly_ranked_keywords.py](spyfu/scripts/spyfu_newly_ranked_keywords.py) - **Mensuel**
-**Métriques collectées (28 colonnes):**
-- **Identifiants:** domain, keyword
-- **Ranking:** top_ranked_url, rank
-- **Recherche:** search_volume, keyword_difficulty
-- **CPC:** broad_cost_per_click, phrase_cost_per_click, exact_cost_per_click
-- **SEO:** seo_clicks, seo_clicks_change, total_monthly_clicks
-- **Pourcentages:** percent_mobile_searches, percent_desktop_searches, percent_not_clicked, percent_paid_clicks, percent_organic_clicks
-- **Coûts:** broad_monthly_cost, phrase_monthly_cost, exact_monthly_cost
-- **Compétition:** paid_competitors, ranking_homepages
-- **Métadonnées:** country_code, retrieved_at
-
-#### Table `top_pages`
-**Script:** [spyfu_top_pages.py](spyfu/scripts/spyfu_top_pages.py) - **Mensuel**
-**Métriques collectées (11 colonnes):**
-- **Identifiants:** domain, url, title
-- **Métriques:** keyword_count, est_monthly_seo_clicks
-- **Top keyword:** top_keyword, top_keyword_position, top_keyword_search_volume, top_keyword_clicks
-- **Métadonnées:** country_code, retrieved_at
-
-#### Table `domain_stats`
-**Script:** [spyfu_domain_stats.py](spyfu/scripts/spyfu_domain_stats.py) - **Mensuel**
-**Métriques collectées (15 colonnes):**
-- **Identifiants:** domain, country_code
-- **PPC:** total_ad_keywords, total_ad_budget, total_ad_clicks, ad_history_months
-- **SEO:** total_seo_keywords, total_organic_keywords, total_organic_traffic, total_organic_value
-- **Domaine:** domain_rank, domain_authority
-- **Raw:** raw_stats (JSON)
-- **Métadonnées:** retrieved_at
-
-#### Table `domain_ad_history`
-**Script:** [spyfu_domain_ad_history.py](spyfu/scripts/spyfu_domain_ad_history.py) - **Trimestriel**
-**Métriques collectées (16 colonnes):**
-- **Identifiants:** domain, ad_id, keyword
-- **Contenu:** headline, description, display_url, destination_url
-- **Temporel:** first_seen_date, last_seen_date, days_seen
-- **Performance:** search_volume, cost_per_click, monthly_cost, position
-- **Métadonnées:** country_code, retrieved_at
-
-#### Table `term_ad_history`
-**Script:** [spyfu_term_ad_history.py](spyfu/scripts/spyfu_term_ad_history.py) - **Trimestriel**
-**Métriques collectées (19 colonnes):**
-- **Identifiants:** keyword, ad_id, domain_name
-- **Contenu:** title, body, full_url, term
-- **Temporel:** search_date_id
-- **Position:** average_position, position
-- **Volume:** average_ad_count, ad_count, leaderboard_count
-- **Pourcentages:** percentage_leaderboard, percentage_ads_served
-- **Flags:** is_leaderboard_ad
-- **Métadonnées:** source, country_code, retrieved_at
-
-**Vues (25) :** top_keywords_by_volume, cpc_analysis, keyword_opportunities, most_valuable_seo_keywords, seo_rankings, most_valuable_pages, domain_stats_evolution, active_ads_analysis, ads_by_keyword, best_ad_headlines_by_keyword, domain_page_performance, domain_performance_overview, domain_spend_by_keyword, domain_stats_comparison, estimated_roi_analysis, keyword_clusters, keyword_expansion_opportunities, new_keyword_opportunities, new_keywords_by_domain, newly_ranked_top_keywords, seo_opportunities, top_10_most_valuable, top_performing_ads, top_spenders_by_keyword, keyword_rich_pages
+- Cloud Run Job déployé dans `europe-west9` (Paris)
+- Cloud Scheduler dans `europe-west1` (Belgique)
+- Exécution hebdomadaire (lundi 2h)
+- Mode APPEND pour conservation de l'historique (sauf campaigns en TRUNCATE)
 
 ---
 
 ### Résumé des tables de ce projet
 
 **Tables de données créées par ce projet Marketing Data Collection :**
+
 - LinkedIn Ads Advertising : 4 tables + 6 vues
 - LinkedIn Ads Library : 1 table
 - LinkedIn Lead Gen Forms : 3 tables + 4 vues
 - Microsoft Clarity : 1 table
 - SpyFu : 11 tables + 25 vues
+- Brevo Email Marketing : 3 tables
 
-**Total : 20 tables de données + 35 vues SQL = 55 objets BigQuery**
+**Total : 23 tables de données + 35 vues SQL = 58 objets BigQuery**
 
-Pour voir le schéma complet de TOUTES les tables du projet BigQuery (323 tables), consultez [BIGQUERY_SCHEMAS.md](BIGQUERY_SCHEMAS.md).
+Pour voir le schéma complet de TOUTES les tables du projet BigQuery (326 tables), consultez [BIGQUERY_SCHEMAS.md](BIGQUERY_SCHEMAS.md).
 
 ---
 
@@ -573,20 +315,23 @@ __pycache__/
 ### Cron jobs recommandés
 
 ```bash
-# LinkedIn Analytics - Quotidien à 3h
-0 3 * * * cd /path/to/marketing-data-collection/linkedin/scripts && python linkedin_campaign_analytics.py >> /var/log/linkedin.log 2>&1
+# LinkedIn Analytics - Hebdomadaire (lundi à 1h)
+0 1 * * 1 cd /path/to/marketing-data-collection/linkedin/scripts && python linkedin_campaign_analytics.py >> /var/log/linkedin.log 2>&1
 
-# Microsoft Clarity - Quotidien à 2h (OBLIGATOIRE)
-0 2 * * * cd /path/to/marketing-data-collection/microsoft_clarity/scripts && python clarity_analytics.py >> /var/log/clarity.log 2>&1
+# Microsoft Clarity - Quotidien à 3h (OBLIGATOIRE)
+0 3 * * * cd /path/to/marketing-data-collection/microsoft_clarity/scripts && python clarity_analytics.py >> /var/log/clarity.log 2>&1
 
-# SpyFu PPC Keywords - Hebdomadaire (dimanche à 5h)
-0 5 * * 0 cd /path/to/marketing-data-collection/spyfu/scripts && python spyfu_ppc_keywords.py >> /var/log/spyfu.log 2>&1
+# SpyFu - Mensuel (1er du mois à 1h)
+0 1 1 * * cd /path/to/marketing-data-collection/spyfu/scripts && python spyfu_ppc_keywords.py >> /var/log/spyfu.log 2>&1
 
-# SpyFu SEO Keywords - Hebdomadaire (dimanche à 6h)
-0 6 * * 0 cd /path/to/marketing-data-collection/spyfu/scripts && python spyfu_seo_keywords.py >> /var/log/spyfu.log 2>&1
+# Brevo Email Marketing - Automatisé via Cloud Scheduler (lundi à 2h)
+# Configuration: voir brevo/DEPLOYMENT_GUIDE.md
 ```
 
-**Important :** Microsoft Clarity limite à 1-3 jours maximum, la collecte **DOIT** être quotidienne.
+**Important :**
+
+- Microsoft Clarity limite à 1-3 jours maximum, la collecte **DOIT** être quotidienne.
+- Brevo utilise Cloud Run Job + Cloud Scheduler (pas de cron local nécessaire)
 
 ---
 
@@ -598,12 +343,7 @@ __pycache__/
 - 💼 **LinkedIn Marketing Developer Platform** - App approuvée
 - 🔍 **Microsoft Clarity** - Projet créé
 - 🎯 **SpyFu** - Abonnement actif
-
-### Logiciels
-
-- Python 3.8+
-- Git
-- Connexion internet
+- 📧 **Brevo (Sendinblue)** - Compte avec API key
 
 ---
 
@@ -664,13 +404,6 @@ tail -f /var/log/clarity.log
 
 ## ❓ Support et Troubleshooting
 
-### Documentation détaillée
-
-- 📖 [SETUP_GUIDE.md](SETUP_GUIDE.md) - Guide complet avec screenshots
-- 🔵 [linkedin/README.md](linkedin/README.md) - Troubleshooting LinkedIn
-- 🟣 [microsoft_clarity/README.md](microsoft_clarity/README.md) - Guide Clarity
-- 🟢 [spyfu/README.md](spyfu/README.md) - Configuration SpyFu
-
 ### Problèmes courants
 
 #### Permission denied sur account-key.json
@@ -721,6 +454,7 @@ pip install -r requirements.txt
 - [Microsoft Clarity API](https://learn.microsoft.com/en-us/clarity/)
 - [SpyFu API](https://www.spyfu.com/apis)
 - [Google BigQuery](https://cloud.google.com/bigquery/docs)
+- [Brevo API](https://developers.brevo.com/docs)
 
 ### Aide supplémentaire
 
@@ -739,12 +473,13 @@ Ce projet est fourni tel quel pour usage interne. Respectez les conditions d'uti
 ## ✅ Checklist de déploiement
 
 ### Google Cloud
+
 - [ ] Projet GCP créé
 - [ ] BigQuery API activée
 - [ ] Service Account créé avec permissions
 - [ ] Clé JSON téléchargée (`account-key.json`)
-- [ ] 5 datasets créés (linkedin_ads_advertising, linkedin_ads_library, linkedin_leadgen_form, microsoft_clarity, spyfu)
-- [ ] Tables créées depuis fichiers SQL (20 tables + 35 vues)
+- [ ] 6 datasets créés (linkedin_ads_advertising, linkedin_ads_library, linkedin_leadgen_form, microsoft_clarity, spyfu, brevo)
+- [ ] Tables créées depuis fichiers SQL (24 tables + 35 vues)
 
 ### Configuration
 - [ ] `config.yaml` créé depuis `config.example.yaml`
@@ -767,8 +502,16 @@ Ce projet est fourni tel quel pour usage interne. Respectez les conditions d'uti
 - [ ] Site web tracké
 
 ### SpyFu
+
 - [ ] Abonnement SpyFu actif
 - [ ] Secret Key récupérée
+
+### Brevo
+
+- [ ] Compte Brevo créé
+- [ ] API Key récupérée
+- [ ] Cloud Run Job déployé
+- [ ] Cloud Scheduler configuré
 
 ### Tests
 - [ ] Configuration validée

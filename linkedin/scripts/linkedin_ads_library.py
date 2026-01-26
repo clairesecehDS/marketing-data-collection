@@ -100,7 +100,9 @@ class LinkedInAdsLibraryClient:
                 print(f"\n🔍 DEBUG - Réponse:")
                 print(f"   Status: {response.status_code}")
                 print(f"   Headers: {dict(response.headers)}")
-                print(f"   Body: {response.text[:500]}...")
+                print(f"\n🔍 DEBUG - Body complet de la réponse:")
+                print(response.text)
+                print(f"\n{'='*70}\n")
 
             # Succès
             if response.status_code == 200:
@@ -542,19 +544,80 @@ class LinkedInAdsLibraryClient:
                 self.bq_client = bigquery.Client()
         return self.bq_client
 
-    def upload_to_bigquery(self, data: List[Dict], table_name: str = "ads_library",
-                          write_disposition: str = "WRITE_APPEND") -> None:
+    def get_existing_ad_urls(self, table_name: str = "ads_library") -> set:
         """
-        Upload les données vers BigQuery
+        Récupère les ad_url déjà présentes dans BigQuery
+
+        Returns:
+            set: Ensemble des ad_url existantes
+        """
+        try:
+            client = self._get_bigquery_client()
+            table_id = f"{self.project_id}.{self.dataset_id}.{table_name}"
+
+            # Vérifier si la table existe
+            try:
+                client.get_table(table_id)
+            except Exception:
+                print(f"ℹ️  Table {table_name} n'existe pas encore, toutes les données seront ajoutées")
+                return set()
+
+            query = f"""
+                SELECT DISTINCT ad_url
+                FROM `{table_id}`
+                WHERE ad_url IS NOT NULL
+            """
+
+            print(f"→ Récupération des ad_url existantes dans BigQuery...")
+            query_job = client.query(query)
+            results = query_job.result()
+
+            existing_urls = {row.ad_url for row in results}
+            print(f"  ✓ {len(existing_urls)} ad_url existantes trouvées")
+
+            return existing_urls
+
+        except Exception as e:
+            print(f"⚠️  Erreur lors de la récupération des ad_url existantes: {e}")
+            print(f"  → Toutes les données seront uploadées")
+            return set()
+
+    def upload_to_bigquery(self, data: List[Dict], table_name: str = "ads_library",
+                          write_disposition: str = "WRITE_APPEND",
+                          deduplicate: bool = True) -> None:
+        """
+        Upload les données vers BigQuery avec déduplication intelligente
 
         Args:
             data: Données à uploader (liste de dictionnaires)
             table_name: Nom de la table (défaut: ads_library)
             write_disposition: Mode d'écriture (WRITE_APPEND, WRITE_TRUNCATE, WRITE_EMPTY)
+            deduplicate: Si True, vérifie les ad_url existantes et n'uploade que les nouvelles
         """
         if not data:
             print(f"⚠️  Aucune donnée à uploader")
             return
+
+        # Déduplication avec BigQuery si demandée
+        if deduplicate and write_disposition == "WRITE_APPEND":
+            existing_urls = self.get_existing_ad_urls(table_name)
+
+            if existing_urls:
+                # Filtrer les données pour ne garder que les nouvelles ad_url
+                new_data = [ad for ad in data if ad.get('ad_url') not in existing_urls]
+
+                print(f"\n📊 Déduplication:")
+                print(f"  - Total collecté: {len(data)}")
+                print(f"  - Déjà en base: {len(data) - len(new_data)}")
+                print(f"  - Nouvelles pubs à ajouter: {len(new_data)}")
+
+                if not new_data:
+                    print(f"✓ Aucune nouvelle publicité à uploader")
+                    return
+
+                data = new_data
+            else:
+                print(f"ℹ️  Première collecte, upload de toutes les {len(data)} publicités")
 
         try:
             client = self._get_bigquery_client()
@@ -659,15 +722,9 @@ def main():
     DATASET_ID = google_config['datasets']['linkedin_ads_library']
     CREDENTIALS_PATH = None if is_cloud_function else google_config.get('credentials_file')
 
-    # Calculer la plage de dates
-    # TEMPORAIRE: depuis le 01/01/2025 pour récupération initiale
-    # TODO: Remettre la logique de "hier" pour la production Cloud Run
-    start_date = datetime(2025, 1, 1)
-    today = datetime.now()
-    date_range = {
-        'start': {'day': start_date.day, 'month': start_date.month, 'year': start_date.year},
-        'end': {'day': today.day, 'month': today.month, 'year': today.year}
-    }
+    # Ne pas utiliser de filtre de date - récupérer toutes les pubs disponibles
+    # La déduplication se fera via BigQuery en vérifiant les ad_url existantes
+    date_range = None
 
     # Configuration de la recherche depuis le YAML
     ads_library_config = linkedin_config.get('ads_library', {})

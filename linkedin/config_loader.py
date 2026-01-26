@@ -103,6 +103,10 @@ class ConfigLoader:
 
     def get_linkedin_config(self) -> Dict[str, Any]:
         """Récupère la configuration LinkedIn"""
+        # DEBUG: Afficher la valeur de page_id
+        page_id_value = self.get('linkedin.page_id')
+        print(f"🔍 DEBUG config_loader - page_id récupéré: {page_id_value} (type: {type(page_id_value)})")
+        
         return {
             'access_token': self.get('linkedin.oauth.access_token'),
             'client_id': self.get('linkedin.oauth.client_id'),
@@ -110,6 +114,7 @@ class ConfigLoader:
             'refresh_token': self.get('linkedin.oauth.refresh_token'),
             'account_id': self.get('linkedin.account_id'),
             'organization_id': self.get('linkedin.organization_id'),
+            'page_id': page_id_value,  # Utiliser la valeur debug
             'start_date': self.get('linkedin.collection.start_date'),
             'end_date': self.get('linkedin.collection.end_date'),
             'granularity': self.get('linkedin.collection.granularity', 'DAILY'),

@@ -183,18 +183,20 @@ class SpyFuTermAdHistoryCollector:
     def parse_domain_stats(self, domain_stat: Dict, keyword: str, country_code: str) -> Dict:
         """
         Parse les statistiques d'un domaine au format BigQuery
-        
+
         Args:
             domain_stat: Statistiques du domaine depuis l'API
             keyword: Keyword recherché
             country_code: Code pays
         """
+        # Les clés dans domain_stat sont déjà en snake_case depuis get_term_ad_history
+        # Mais on doit les récupérer correctement
         return {
             "keyword": keyword,
             "domain_name": domain_stat.get("domain_name"),
             "budget": domain_stat.get("budget"),
-            "coverage": domain_stat.get("coverage"),
-            "percentage_leaderboard": domain_stat.get("percentage_leaderboard"),
+            "coverage": domain_stat.get("coverage", 0.0),  # Valeur par défaut 0.0
+            "percentage_leaderboard": domain_stat.get("percentage_leaderboard", 0.0),  # Valeur par défaut 0.0
             "total_ads_purchased": domain_stat.get("total_ads_purchased"),
             "ad_count": domain_stat.get("ad_count"),
             "country_code": country_code,
@@ -290,20 +292,73 @@ class SpyFuTermAdHistoryCollector:
 
             df = pd.DataFrame(data)
 
-            # Conversion des types
-            for col in df.columns:
-                if df[col].dtype == 'object' and col not in ['first_seen_date', 'last_seen_date']:
-                    try:
-                        df[col] = pd.to_numeric(df[col])
-                    except (ValueError, TypeError):
-                        df[col] = df[col].astype(str)
-                        df[col] = df[col].replace('None', None)
+            # Filtrer les lignes avec keyword NULL (champ requis)
+            initial_count = len(df)
+            df = df.dropna(subset=['keyword'])
+            filtered_count = initial_count - len(df)
+
+            if filtered_count > 0:
+                print(f"⚠️  {filtered_count} ligne(s) filtrée(s) (champ keyword null)")
+
+            if len(df) == 0:
+                print(f"⚠️  Aucune donnée valide à uploader après filtrage")
+                return
+
+            # Conversion selon le schéma BigQuery
+            # Pour term_domain_stats : budget et coverage en FLOAT, les autres en INTEGER
+            # Pour term_ad_history : tous en FLOAT
+
+            if table_id == "term_domain_stats":
+                # Colonnes qui restent en FLOAT
+                float_cols = ['budget', 'coverage']
+                for col in float_cols:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').astype('float64')
+                
+                # Colonnes qui doivent être INTEGER (arrondir puis convertir en int64)
+                int_cols = ['percentage_leaderboard', 'total_ads_purchased', 'ad_count']
+                for col in int_cols:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').round().astype('int64')
+            else:
+                # Pour term_ad_history, tout en float64 pour éviter les problèmes
+                numeric_cols = ['average_position', 'position', 'average_ad_count', 'leaderboard_count',
+                               'percentage_ads_served', 'ad_id', 'search_date_id', 'ad_count']
+                for col in numeric_cols:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').astype('float64')
+
+            # Conversion des booléens
+            bool_cols = ['is_leaderboard_ad']
+            for col in bool_cols:
+                if col in df.columns:
+                    df[col] = df[col].fillna(False).astype(bool)
+
+            # Conversion des colonnes texte (ne pas essayer de convertir en numérique)
+            text_cols = ['keyword', 'domain_name', 'title', 'body', 'full_url', 'term', 'source', 'country_code']
+            for col in text_cols:
+                if col in df.columns:
+                    # Utiliser une approche plus robuste pour les NaN et None
+                    df[col] = df[col].astype(object).where(df[col].notna(), None)
+                    df[col] = df[col].apply(lambda x: str(x) if x is not None else None)
 
             # Gérer les colonnes datetime
             date_columns = ['retrieved_at', 'first_seen_date', 'last_seen_date']
             for col in date_columns:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], utc=True, errors='coerce')
+
+            # S'assurer que toutes les colonnes ont des types compatibles Parquet
+            for col in df.columns:
+                # Convertir les colonnes object qui ne sont ni texte ni datetime
+                if df[col].dtype == 'object' and col not in text_cols + date_columns:
+                    # Essayer de détecter et convertir les types appropriés
+                    if df[col].notna().any():
+                        first_valid = df[col].dropna().iloc[0] if len(df[col].dropna()) > 0 else None
+                        if isinstance(first_valid, (int, float)):
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                        else:
+                            df[col] = df[col].astype(str).replace('nan', None)
 
             print(f"📤 Upload de {len(df)} lignes vers {project_id}.{dataset_id}.{table_id}...")
 
@@ -313,7 +368,8 @@ class SpyFuTermAdHistoryCollector:
                 project_id=project_id,
                 credentials=credentials,
                 if_exists='append',
-                progress_bar=False
+                progress_bar=False,
+                table_schema=None  # Ne pas forcer le schéma, laisser BigQuery gérer
             )
 
             print(f"✓ Upload réussi vers BigQuery")
@@ -334,18 +390,53 @@ def main():
     PROJECT_ID = google_config['project_id']
     DATASET_ID = google_config['datasets']['spyfu']
     CREDENTIALS_PATH = google_config['credentials_file']
-    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
+    # Essayer d'abord spyfu.global.country_code, puis spyfu.country_code, par défaut US
+    COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code') or spyfu_config.get('country_code', 'US')
 
-    ROWCOUNT = 7  # Selon le document .odt
+    # Charger la configuration de term_ad_history
+    # Dans le YAML, term_ad_history est directement sous spyfu:
+    # Le config_loader devrait le placer directement dans spyfu_config
+    
+    # Debug: voir TOUTES les clés et leurs types
+    print(f"\n🔍 Debug configuration:")
+    print(f"   Keys dans spyfu_config: {list(spyfu_config.keys())}")
+    for key in spyfu_config.keys():
+        val = spyfu_config[key]
+        print(f"   - {key}: {type(val).__name__} = {val if not isinstance(val, (dict, list)) or len(str(val)) < 100 else f'{type(val).__name__} avec {len(val)} items'}")
+    
+    # Essayer de lire term_ad_history directement
+    term_ad_config = spyfu_config.get('term_ad_history', {})
+    
+    if term_ad_config:
+        print(f"\n   ✓ term_ad_history trouvé!")
+        print(f"   Keys: {list(term_ad_config.keys()) if isinstance(term_ad_config, dict) else 'NOT A DICT'}")
+        if isinstance(term_ad_config, dict):
+            print(f"   Nombre de keywords: {len(term_ad_config.get('keywords', []))}")
+    
+    # ROWCOUNT - utiliser page_size depuis la config si disponible
+    ROWCOUNT = term_ad_config.get('page_size', 7) if isinstance(term_ad_config, dict) else 7
 
-    MAX_DATE = datetime.now().strftime("%Y-%m-%d")
-    MIN_DATE = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+    # Dates - utiliser les dates de la config si disponibles, sinon 90 jours par défaut
+    if 'end_date' in term_ad_config:
+        MAX_DATE = term_ad_config['end_date']
+    else:
+        MAX_DATE = datetime.now().strftime("%Y-%m-%d")
+    
+    if 'start_date' in term_ad_config:
+        MIN_DATE = term_ad_config['start_date']
+    else:
+        MIN_DATE = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
 
     # Charger les keywords depuis la configuration
-    KEYWORDS = spyfu_config.get('keywords', [])
+    # D'abord essayer dans term_ad_history.keywords, puis fallback vers spyfu.keywords
+    KEYWORDS = term_ad_config.get('keywords', [])
+    
+    # Si pas de keywords dans term_ad_history, essayer au niveau spyfu
+    if not KEYWORDS:
+        KEYWORDS = spyfu_config.get('keywords', [])
 
     if not KEYWORDS:
-        print("⚠️  Aucun keyword configuré dans spyfu.keywords")
+        print("⚠️  Aucun keyword configuré dans spyfu.term_ad_history.keywords ou spyfu.keywords")
         print("   Utilisation des keywords par défaut")
         KEYWORDS = [
             "travel security",
@@ -389,8 +480,8 @@ def main():
         print(f"✓ Stats domaines sauvegardées: ../data/{domain_stats_filename}")
 
     print("\n📤 Upload vers BigQuery...")
-    
-    # Upload des annonces
+
+    # Upload des annonces vers term_ad_history
     collector.upload_to_bigquery(
         data=ads_data,
         project_id=PROJECT_ID,
@@ -398,7 +489,7 @@ def main():
         table_id="term_ad_history",
         credentials_path=CREDENTIALS_PATH
     )
-    
+
     # Upload des stats de domaines si disponibles
     if domain_stats_data:
         collector.upload_to_bigquery(

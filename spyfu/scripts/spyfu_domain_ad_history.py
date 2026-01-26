@@ -93,14 +93,82 @@ class SpyFuDomainAdHistoryCollector:
                 print(f"  Détails: {e.response.text}")
             return []
 
-    def parse_ad_data(self, ad_data: Dict, domain: str, country_code: str) -> Dict:
+    def get_keyword_metrics(
+        self,
+        domain: str,
+        keyword: str,
+        country_code: str = "US"
+    ) -> Dict:
         """
-        Parse les données d'une annonce au format BigQuery
+        Récupère les métriques d'un keyword spécifique via l'API PPC Keywords
+
+        Args:
+            domain: Domaine analysé
+            keyword: Mot-clé à rechercher
+            country_code: Code pays
+
+        Returns:
+            Dict avec search_volume, cost_per_click, monthly_cost (ou None si non trouvé)
+        """
+        # Vérifier le cache
+        cache_key = f"{domain}:{keyword}:{country_code}"
+        if not hasattr(self, '_keyword_cache'):
+            self._keyword_cache = {}
+
+        if cache_key in self._keyword_cache:
+            return self._keyword_cache[cache_key]
+
+        # Appel API
+        endpoint = "https://api.spyfu.com/apis/keyword_api/v2/ppc/getMostSuccessful"
+
+        params = {
+            "query": domain,
+            "countryCode": country_code,
+            "pageSize": 20,
+            "startingRow": 1,
+            "sortBy": "SearchVolume",
+            "sortOrder": "Descending",
+            "api_key": self.api_key
+        }
+
+        headers = {"Accept": "application/json"}
+
+        try:
+            response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
+            response.raise_for_status()
+
+            data = response.json()
+            keywords_data = data.get("results", [])
+
+            # Chercher le keyword spécifique (insensible à la casse)
+            for kw_data in keywords_data:
+                if kw_data.get("keyword", "").lower() == keyword.lower():
+                    metrics = {
+                        "search_volume": kw_data.get("searchVolume"),
+                        "cost_per_click": kw_data.get("broadCostPerClick"),
+                        "monthly_cost": kw_data.get("broadMonthlyCost")
+                    }
+                    self._keyword_cache[cache_key] = metrics
+                    return metrics
+
+            # Si non trouvé dans les résultats
+            default_metrics = {"search_volume": None, "cost_per_click": None, "monthly_cost": None}
+            self._keyword_cache[cache_key] = default_metrics
+            return default_metrics
+
+        except requests.exceptions.RequestException as e:
+            print(f"  ⚠️  Erreur lors de la récupération des métriques pour '{keyword}': {e}")
+            return {"search_volume": None, "cost_per_click": None, "monthly_cost": None}
+
+    def parse_ad_data(self, ad_data: Dict, domain: str, country_code: str, enrich: bool = True) -> Dict:
+        """
+        Parse les données d'une annonce au format BigQuery avec enrichissement
 
         Args:
             ad_data: Données brutes de l'annonce depuis l'API
             domain: Domaine analysé
             country_code: Code pays
+            enrich: Si True, enrichit avec les métriques du keyword (search_volume, CPC, etc.)
 
         Returns:
             Dictionnaire formaté pour BigQuery
@@ -114,12 +182,25 @@ class SpyFuDomainAdHistoryCollector:
                 first_seen = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
             except:
                 pass
-        
-        # Extraire le premier keyword de la liste (pour compatibilité avec le schéma)
+
+        # Extraire le premier keyword de la liste
         keywords_list = ad_data.get("keywords", [])
         keyword = keywords_list[0] if keywords_list else None
-        
-        return {
+
+        # Extraire display_url depuis l'URL de destination
+        destination_url = ad_data.get("url")
+        display_url = None
+        if destination_url:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(destination_url)
+                # Format: domain.com/path
+                display_url = f"{parsed.netloc}{parsed.path}".rstrip("/")
+            except:
+                display_url = None
+
+        # Structure de base
+        parsed_data = {
             # Identifiants
             "domain": domain,
             "ad_id": str(ad_data.get("adId")) if ad_data.get("adId") else None,
@@ -128,18 +209,17 @@ class SpyFuDomainAdHistoryCollector:
             # Contenu de l'annonce (l'API utilise title/body au lieu de headline/description)
             "headline": ad_data.get("title"),
             "description": ad_data.get("body"),
-            "display_url": None,  # Pas retourné par cette API
-            "destination_url": ad_data.get("url"),
+            "display_url": display_url,  # Extrait depuis l'URL
+            "destination_url": destination_url,
 
             # Métriques temporelles
             "first_seen_date": first_seen,
-            "last_seen_date": first_seen,  # L'API ne fournit qu'une date
-            "days_seen": None,  # Pas retourné par cette API
+            # Note: last_seen_date et days_seen ne sont pas dans le schéma BigQuery actuel
 
-            # Métriques de performance
-            "search_volume": None,  # Pas retourné par cette API
-            "cost_per_click": None,  # Pas retourné par cette API
-            "monthly_cost": None,  # Pas retourné par cette API
+            # Métriques de performance (à enrichir)
+            "search_volume": None,
+            "cost_per_click": None,
+            "monthly_cost": None,
             "position": ad_data.get("position"),
 
             # Métadonnées
@@ -147,13 +227,24 @@ class SpyFuDomainAdHistoryCollector:
             "retrieved_at": datetime.now()
         }
 
+        # Enrichissement avec les métriques du keyword via API PPC
+        if enrich and keyword:
+            print(f"    🔍 Enrichissement pour keyword '{keyword}'...")
+            metrics = self.get_keyword_metrics(domain, keyword, country_code)
+            parsed_data["search_volume"] = metrics.get("search_volume")
+            parsed_data["cost_per_click"] = metrics.get("cost_per_click")
+            parsed_data["monthly_cost"] = metrics.get("monthly_cost")
+
+        return parsed_data
+
     def collect_all_domains(
         self,
         domains: List[str],
         country_code: str = "US",
         rowcount: int = 23,
         min_date: Optional[str] = None,
-        max_date: Optional[str] = None
+        max_date: Optional[str] = None,
+        enrich: bool = True
     ) -> List[Dict]:
         """
         Collecte les données pour tous les domaines
@@ -164,6 +255,7 @@ class SpyFuDomainAdHistoryCollector:
             rowcount: Nombre de résultats par domaine
             min_date: Date minimale
             max_date: Date maximale
+            enrich: Si True, enrichit avec les métriques des keywords (recommandé)
 
         Returns:
             Liste de toutes les annonces formatées
@@ -174,6 +266,10 @@ class SpyFuDomainAdHistoryCollector:
         all_ads = []
 
         for domain in domains:
+            print(f"\n{'='*80}")
+            print(f"📍 Traitement de {domain}")
+            print(f"{'='*80}")
+
             raw_ads = self.get_domain_ad_history(
                 domain=domain,
                 country_code=country_code,
@@ -183,8 +279,10 @@ class SpyFuDomainAdHistoryCollector:
             )
 
             for ad in raw_ads:
-                parsed = self.parse_ad_data(ad, domain, country_code)
+                parsed = self.parse_ad_data(ad, domain, country_code, enrich)
                 all_ads.append(parsed)
+
+            print(f"✓ {len(raw_ads)} annonces traitées pour {domain}")
 
         return all_ads
 
@@ -260,7 +358,7 @@ class SpyFuDomainAdHistoryCollector:
 
             # Conversion des types pour BigQuery
             for col in df.columns:
-                if df[col].dtype == 'object' and col not in ['first_seen_date', 'last_seen_date']:
+                if df[col].dtype == 'object' and col not in ['first_seen_date']:
                     try:
                         df[col] = pd.to_numeric(df[col])
                     except (ValueError, TypeError):
@@ -268,7 +366,7 @@ class SpyFuDomainAdHistoryCollector:
                         df[col] = df[col].replace('None', None)
 
             # Gérer les colonnes datetime
-            date_columns = ['retrieved_at', 'first_seen_date', 'last_seen_date']
+            date_columns = ['retrieved_at', 'first_seen_date']
             for col in date_columns:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], utc=True, errors='coerce')
@@ -309,7 +407,8 @@ def main():
     PROJECT_ID = google_config['project_id']
     DATASET_ID = google_config['datasets']['spyfu']
     CREDENTIALS_PATH = google_config['credentials_file']
-    COUNTRY_CODE = spyfu_config.get('country_code', 'US')
+    # Essayer d'abord spyfu.global.country_code, puis spyfu.country_code, par défaut US
+    COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code') or spyfu_config.get('country_code', 'US')
 
     # Paramètres depuis le fichier .odt
     ROWCOUNT = 23  # Selon le document .odt
@@ -347,22 +446,29 @@ def main():
         # Mode collection normal
         DOMAINS = spyfu_config['domains']['all']
 
-        print(f"SpyFu Domain Ad History Collection")
+        print("=" * 80)
+        print("  SpyFu Domain Ad History Collection - VERSION ENRICHIE")
+        print("=" * 80)
         print(f"📍 Pays: {COUNTRY_CODE}")
         print(f"🌐 Domaines: {', '.join(DOMAINS)}")
         print(f"📊 Rowcount: {ROWCOUNT} par domaine")
         print(f"📅 Période: {MIN_DATE} à {MAX_DATE}")
+        print("\n🔍 Enrichissement activé:")
+        print("   ✅ display_url: Extrait depuis l'URL de destination")
+        print("   ✅ search_volume, cost_per_click, monthly_cost: Via API PPC Keywords")
+        print("=" * 80)
 
         # Initialiser le collecteur
         collector = SpyFuDomainAdHistoryCollector(api_key=API_KEY)
 
-        # Collecter les données
+        # Collecter les données avec enrichissement
         ads_data = collector.collect_all_domains(
             domains=DOMAINS,
             country_code=COUNTRY_CODE,
             rowcount=ROWCOUNT,
             min_date=MIN_DATE,
-            max_date=MAX_DATE
+            max_date=MAX_DATE,
+            enrich=True  # Active l'enrichissement
         )
 
         print(f"\n✓ Total: {len(ads_data)} annonces collectées")

@@ -306,6 +306,11 @@ def load_config(config_path: str = "config.yaml", skip_credentials_check: bool =
         SystemExit: Si la configuration est invalide
     """
     try:
+        # Priorité à la variable d'environnement SPYFU_CONFIG_PATH si définie
+        env_config_path = os.getenv('SPYFU_CONFIG_PATH')
+        if env_config_path:
+            config_path = env_config_path
+
         config = ConfigLoader(config_path)
 
         if not config.validate():
