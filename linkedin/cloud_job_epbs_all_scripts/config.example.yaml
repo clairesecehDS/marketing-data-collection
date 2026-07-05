@@ -1,0 +1,505 @@
+# ============================================================
+# EXEMPLE DE CONFIGURATION — NE PAS UTILISER DIRECTEMENT
+# ============================================================
+# Basé sur : EPBS (École des Ponts)
+#
+# INSTRUCTIONS :
+#   1. Copier ce fichier en "config.yaml"
+#   2. Remplacer tous les YOUR_* par vos vraies valeurs
+#   3. Ne jamais commiter config.yaml dans Git !
+#
+# Secrets à remplir :
+#   - YOUR_GCP_PROJECT_ID  → ID de votre projet Google Cloud
+#   - YOUR_LINKEDIN_ACCESS_TOKEN → Token OAuth LinkedIn (expire ~60 jours)
+#   - YOUR_CLARITY_PROJECT_ID   → ID du projet Microsoft Clarity
+#   - YOUR_CLARITY_API_KEY      → Clé API Microsoft Clarity
+#   - YOUR_SPYFU_API_KEY        → Clé API SpyFu
+# ============================================================
+
+# ============================================================
+# GOOGLE CLOUD & BIGQUERY
+# ============================================================
+google_cloud:
+  project_id: "YOUR_GCP_PROJECT_ID"  # Ex: clean-avatar-466709-a0
+  credentials_file: "../account-key.json"  # Chemin vers le Service Account JSON
+
+  # Datasets BigQuery
+  datasets:
+    # LinkedIn datasets (4 datasets au total)
+    linkedin_ads: "linkedin_ads_advertising"
+    linkedin_library: "linkedin_ads_library"
+    linkedin_leadgen: "linkedin_leadgen_form"
+    linkedin_page: "linkedin_page"
+
+    # Autres datasets
+    clarity: "microsoft_clarity"
+    spyfu: "spyfu"
+
+  # Région des données
+  location: "europe-west9"  # us-central1, asia-northeast1, etc.
+
+
+# ============================================================
+# LINKEDIN
+# ============================================================
+linkedin:
+  # OAuth 2.0 Credentials
+  oauth:
+    access_token: "YOUR_LINKEDIN_ACCESS_TOKEN"
+    client_id: "VOTRE_CLIENT_ID"
+    client_secret: "VOTRE_CLIENT_SECRET"
+    refresh_token: "VOTRE_REFRESH_TOKEN"
+
+    # Redirect URI pour le flow OAuth (génération de tokens)
+    # Option 1 : Outil officiel LinkedIn (recommandé pour première fois)
+    redirect_uri: "https://www.linkedin.com/developers/tools/oauth/redirect"
+    # Option 2 : Localhost sur port 8000
+    # redirect_uri: "http://localhost:8000/auth/linkedin/callback"
+
+    # Scopes OAuth nécessaires (liste par défaut complète)
+    scopes:
+      - "r_ads"                          # Retrieve advertising accounts
+      - "rw_ads"                         # Manage advertising accounts
+      - "r_ads_reporting"                # Retrieve reporting
+      - "r_ads_leadgen_automation"       # Access Lead Gen Forms
+      - "r_basicprofile"                 # Basic profile
+      - "r_liteprofile"                  # Name and photo
+      - "r_organization_social"          # Organization posts
+      - "r_organization_admin"           # Organization pages
+      - "w_organization_social"          # Create posts
+      - "rw_organization_admin"          # Manage organization
+      - "w_member_social"                # Create posts on behalf
+      - "r_1st_connections_size"         # Connections count
+      - "r_marketing_leadgen_automation" # Lead gen forms
+      - "r_events"                       # Retrieve events
+      - "rw_events"                      # Manage events
+      - "r_dma_admin_pages_content"      # DMA page content
+
+  # Ad Account
+  account_id: "503061133"  # Votre Ad Account ID
+  
+  # Organization (pour les statistiques de page et lead forms)
+  organization_id: "15092687"  # Votre Organization ID LinkedIn
+  # organization_id: "5509810"  # Votre Organization ID LinkedIn
+
+  # Page ID
+  page_id: "15092687"  # Page ID LinkedIn
+
+  # Configuration de collecte
+  collection:
+    # Période de collecte (format YYYY-MM-DD)
+    start_date: "2017-01-01"
+    # end_date laissé vide = aujourd'hui
+    end_date: null
+
+    # Granularité des données
+    granularity: "DAILY"  # DAILY, MONTHLY, YEARLY, ALL
+
+    # Version API LinkedIn
+    api_version: "202509"
+
+  # Analytics - Pivots à collecter
+  analytics:
+    pivots:
+      - "CAMPAIGN"   # Données agrégées par campagne
+      - "CREATIVE"   # Données par creative individuelle
+
+  # Métriques à collecter (analytics)
+  metrics:
+    base:
+      - impressions
+      - clicks
+      - cost_in_usd
+      - cost_in_local_currency
+      - ctr
+      - average_cpc
+
+    conversions:
+      - total_conversions
+      - conversion_value_in_usd
+      - cost_per_conversion
+      - conversion_rate
+
+    engagement:
+      - likes
+      - comments
+      - shares
+      - follows
+      - engagement_rate
+      - clicks_on_company_page
+
+    video:
+      - video_views
+      - video_starts
+      - video_completions
+      - video_first_quartile_completions
+      - video_midpoint_completions
+      - video_third_quartile_completions
+      - video_completion_rate
+
+  # Budget - Métriques à collecter
+  budget_metrics:
+    - total_budget
+    - daily_budget
+    - bid_type
+    - bid_amount
+    - unit_cost
+    - start_date
+    - end_date
+    - status
+    - run_schedule_start
+    - run_schedule_end
+
+  # Lead Forms - Configuration
+  lead_forms:
+    # Période de collecte des réponses
+    collection_period_days: 30
+
+    # Champs à extraire
+    fields:
+      - email
+      - first_name
+      - last_name
+      - company
+      - job_title
+      - phone
+      - country
+      - custom_fields
+
+  # Ads Library - Configuration de recherche
+  ads_library:
+    # Mots-clés à rechercher dans les publicités
+    # Note: Vous pouvez laisser vide [] si vous ne voulez chercher que par annonceurs
+    keywords: []
+
+    # Annonceurs spécifiques à surveiller (noms exacts)
+    # Note: Vous pouvez laisser vide [] si vous ne voulez chercher que par mots-clés
+    # IMPORTANT: Au moins keywords OU advertisers doit être rempli
+    advertisers:
+      - "SKEMA BUSINESS SCHOOL"
+      - "NEOMA BUSINESS SCHOOL"
+      - "INSEAD"
+      - "IFG Executive Education"
+      - "ICN"
+      - "IAE"
+      - "HEC"
+      - "ESSEC BUSINESS SCHOOL"
+      - "ESCP BUSINESS SCHOOL"
+      - "EMLYON"
+      - "EDHEC BUSINESS SCHOOL"
+      - "Audencia"
+      - "École des Ponts Business School"
+      # Ajoutez vos concurrents ici
+
+    # Pays à cibler (codes ISO à 2 lettres)
+    countries:
+      - "fr"  # France
+      # - "us"  # États-Unis
+      # - "gb"  # Royaume-Uni
+      # - "de"  # Allemagne
+
+    # Maximum de résultats par recherche (limite API)
+    max_results_per_search: 500
+
+
+# ============================================================
+# MICROSOFT CLARITY
+# ============================================================
+microsoft_clarity:
+  # API Credentials
+  project_id: "YOUR_CLARITY_PROJECT_ID"
+  api_key: "YOUR_CLARITY_API_KEY"
+
+  # API Configuration
+  api:
+    base_url: "https://www.clarity.ms/api/project-live-insights"
+    num_of_days: 1  # 1, 2 ou 3 maximum (limitation API)
+
+  # Métriques à collecter
+  metrics:
+    traffic:
+      - total_sessions
+      - total_users
+      - page_views
+
+    engagement:
+      - avg_engagement_time
+      - scroll_depth
+
+    frustration:
+      - dead_clicks
+      - rage_clicks
+      - quick_backs
+      - excessive_scrolling
+
+    errors:
+      - error_clicks
+      - script_errors
+
+    dimensions:
+      - browser_breakdown
+      - device_breakdown
+      - os_breakdown
+      - user_geography
+
+
+# ============================================================
+# SPYFU
+# ============================================================
+spyfu:
+  # API Credentials
+  api_key: "YOUR_SPYFU_API_KEY"  # Secret Key, pas l'ID !
+
+  # Configuration globale
+  global:
+    country_code: "FR"  # FR, US, DE, GB, etc.
+    page_size: 10     # Nombre de résultats par requête (max 10000)
+
+  # Domaines à analyser
+  domains:
+    # Votre domaine principal
+    primary: "pontsbschool.com"
+
+    # Concurrents à surveiller
+    competitors:
+      - "pontsbschool.com"
+      - "skema.edu"
+      - "neoma-bs.com"
+      - "insead.edu"
+      - "ifgexecutive.com"
+      - "icn-artem.com"
+      - "iae-france.fr"
+      - "hec.edu"
+      - "essec.edu"
+      - "escp.eu"
+      - "em-lyon.com"
+      - "edhec.edu"
+      - "audencia.com"
+
+  # Comparaisons SEO (pour outrank_comparison)
+  comparisons:
+    - domain: "pontsbschool.com"
+      compare_domain: "skema.edu"
+    - domain: "pontsbschool.com"
+      compare_domain: "neoma-bs.com"
+    - domain: "pontsbschool.com"
+      compare_domain: "insead.edu"
+    - domain: "pontsbschool.com"
+      compare_domain: "ifgexecutive.com"
+    - domain: "pontsbschool.com"
+      compare_domain: "icn-artem.com"
+    - domain: "pontsbschool.com"
+      compare_domain: "iae-france.fr"
+    - domain: "pontsbschool.com"
+      compare_domain: "hec.edu"
+    - domain: "pontsbschool.com"
+      compare_domain: "essec.edu"
+    - domain: "pontsbschool.com"
+      compare_domain: "escp.eu"
+    - domain: "pontsbschool.com"
+      compare_domain: "em-lyon.com"
+    - domain: "pontsbschool.com"
+      compare_domain: "edhec.edu"
+    - domain: "pontsbschool.com"
+      compare_domain: "audencia.com"
+
+  # Filtres par défaut
+  filters:
+    # Volume de recherche minimum
+    min_search_volume: 100
+
+    # Difficulté de ranking maximum
+    max_keyword_difficulty: 80
+
+    # CPC maximum
+    max_cost_per_click: 50.0
+
+    # Clics SEO minimum
+    min_seo_clicks: 10
+
+  # PPC Keywords
+  ppc_keywords:
+    enabled: true
+    sort_by: "SearchVolume"  # SearchVolume, RankingDifficulty, CostPerClick
+    filters:
+      min_search_volume: 100
+
+  # New Keywords
+  new_keywords:
+    enabled: true
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 1000
+
+  # Paid SERPs
+  paid_serps:
+    enabled: true
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 100
+      min_ad_count: 2
+
+  # SEO Keywords
+  seo_keywords:
+    enabled: true
+    search_type: "MostValuable"  # MostValuable, GainedClicks, LostClicks, JustMadeIt, JustLostIt, All
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 100
+      min_seo_clicks: 10
+
+  # Newly Ranked
+  newly_ranked:
+    enabled: true
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 50
+      max_rank: 50  # Seulement top 50
+
+  # Outrank Comparison
+  outrank_comparison:
+    enabled: true
+    sort_by: "SearchVolume"
+    filters:
+      min_search_volume: 100
+
+  # Top Pages
+  top_pages:
+    enabled: true
+    sort_by: "EstMonthlySeoClicks"
+    filters:
+      min_seo_clicks: 50
+
+  # PPC Competitors
+  ppc_competitors:
+    enabled: true
+    page_size: 50  # Nombre de concurrents à récupérer
+    sort_by: "CommonTerms"
+
+
+# ============================================================
+# AUTOMATISATION
+# ============================================================
+automation:
+  # Fréquences de collecte recommandées
+  schedules:
+    linkedin:
+      campaign_analytics: "daily"      # Quotidien à 3h
+      budget: "weekly"                 # Hebdomadaire (lundi)
+      lead_forms: "twice_daily"        # 2x/jour (8h, 18h)
+
+    clarity:
+      analytics: "daily"               # OBLIGATOIRE quotidien à 2h
+
+    spyfu:
+      ppc_keywords: "weekly"           # Hebdomadaire (dimanche)
+      seo_keywords: "weekly"           # Hebdomadaire (dimanche)
+      other: "monthly"                 # Mensuel (1er du mois)
+
+  # Logs
+  logging:
+    directory: "/var/log/marketing_collection"
+    retention_days: 30
+    level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+
+
+# ============================================================
+# EXPORT & BACKUP
+# ============================================================
+export:
+  # Formats d'export
+  formats:
+    json:
+      enabled: true
+      compression: false  # gzip compression
+
+    csv:
+      enabled: false
+      delimiter: ","
+
+    parquet:
+      enabled: false
+
+  # Backup
+  backup:
+    enabled: true
+    retention_days: 90
+
+    # Backup vers Google Cloud Storage (optionnel)
+    gcs:
+      enabled: false
+      bucket: "marketing-data-backup"
+      path: "backups/"
+
+
+# ============================================================
+# ALERTES & MONITORING
+# ============================================================
+monitoring:
+  # Alertes par email
+  alerts:
+    enabled: false
+    email: "admin@example.com"
+
+    # Conditions d'alerte
+    conditions:
+      - type: "data_freshness"
+        threshold_days: 2
+        message: "Données pas mises à jour depuis {days} jours"
+
+      - type: "collection_failure"
+        consecutive_failures: 3
+        message: "Échec de collecte {count} fois consécutives"
+
+      - type: "budget_alert"
+        budget_used_percentage: 80
+        message: "Budget utilisé à {percent}%"
+
+  # Dashboard
+  dashboard:
+    enabled: false
+    type: "looker_studio"  # looker_studio, tableau, metabase
+    url: null
+
+
+# ============================================================
+# ADVANCED SETTINGS
+# ============================================================
+advanced:
+  # Timeouts API (secondes)
+  timeouts:
+    linkedin: 60
+    clarity: 60
+    spyfu: 60
+
+  # Retry logic
+  retry:
+    max_attempts: 3
+    backoff_factor: 2  # Exponentiel : 2s, 4s, 8s
+
+  # Rate limiting
+  rate_limiting:
+    requests_per_minute: 30
+    pause_between_requests: 2  # secondes
+
+  # Déduplication BigQuery
+  deduplication:
+    enabled: true
+    merge_strategy: "WRITE_APPEND"  # WRITE_APPEND, WRITE_TRUNCATE
+
+
+# ============================================================
+# DEVELOPMENT & DEBUG
+# ============================================================
+development:
+  # Mode debug
+  debug_mode: false
+
+  # Dry run (ne pas uploader vers BigQuery)
+  dry_run: false
+
+  # Limiter le nombre de résultats (pour tests)
+  limit_results: null  # null = pas de limite, ou nombre (ex: 10)
+
+  # Verbose logging
+  verbose: false

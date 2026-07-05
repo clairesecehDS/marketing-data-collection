@@ -1,0 +1,518 @@
+# ============================================================
+# EXEMPLE DE CONFIGURATION — NE PAS UTILISER DIRECTEMENT
+# ============================================================
+# Basé sur : SOS (International SOS)
+#
+# INSTRUCTIONS :
+#   1. Copier ce fichier en "config.yaml"
+#   2. Remplacer tous les YOUR_* par vos vraies valeurs
+#   3. Ne jamais commiter config.yaml dans Git !
+#
+# Secrets à remplir :
+#   - YOUR_GCP_PROJECT_ID  → ID de votre projet Google Cloud
+#   - YOUR_LINKEDIN_ACCESS_TOKEN → Token OAuth LinkedIn (expire ~60 jours)
+#   - YOUR_CLARITY_PROJECT_ID   → ID du projet Microsoft Clarity
+#   - YOUR_CLARITY_API_KEY      → Clé API Microsoft Clarity
+#   - YOUR_SPYFU_API_KEY        → Clé API SpyFu
+# ============================================================
+
+# ============================================================
+# GOOGLE CLOUD & BIGQUERY
+# ============================================================
+google_cloud:
+  project_id: "YOUR_GCP_PROJECT_ID"  # Ex: clean-avatar-466709-a0
+  # credentials_file: "../spyfu-account-key-SOS.json"  # Chemin vers le Service Account JSON
+  credentials_file: "../sos-linkedin-ads-library-key.json"  # Credentials de votre compte owner
+
+  # Datasets BigQuery
+  datasets:
+    # LinkedIn datasets (4 datasets au total)
+    linkedin_ads: "linkedin_ads_advertising"
+    linkedin_library: "linkedin_ads_library"
+    linkedin_leadgen: "linkedin_leadgen_form"
+    linkedin_page: "linkedin_page"
+
+    # Autres datasets
+    clarity: "microsoft_clarity"
+    spyfu: "spyfu"
+
+  # Région des données
+  location: "europe-west9"  # us-central1, asia-northeast1, etc.
+
+
+# ============================================================
+# LINKEDIN
+# ============================================================
+linkedin:
+  # OAuth 2.0 Credentials
+  oauth:
+    access_token: "YOUR_LINKEDIN_ACCESS_TOKEN"
+    client_id: "VOTRE_CLIENT_ID"
+    client_secret: "VOTRE_CLIENT_SECRET"
+    refresh_token: "VOTRE_REFRESH_TOKEN"
+
+    # Redirect URI pour le flow OAuth (génération de tokens)
+    # Option 1 : Outil officiel LinkedIn (recommandé pour première fois)
+    redirect_uri: "https://www.linkedin.com/developers/tools/oauth/redirect"
+    # Option 2 : Localhost sur port 8000
+    # redirect_uri: "http://localhost:8000/auth/linkedin/callback"
+
+    # Scopes OAuth nécessaires (liste par défaut complète)
+    scopes:
+      - "r_ads"                          # Retrieve advertising accounts
+      - "rw_ads"                         # Manage advertising accounts
+      - "r_ads_reporting"                # Retrieve reporting
+      - "r_ads_leadgen_automation"       # Access Lead Gen Forms
+      - "r_basicprofile"                 # Basic profile
+      - "r_liteprofile"                  # Name and photo
+      - "r_organization_social"          # Organization posts
+      - "r_organization_admin"           # Organization pages
+      - "w_organization_social"          # Create posts
+      - "rw_organization_admin"          # Manage organization
+      - "w_member_social"                # Create posts on behalf
+      - "r_1st_connections_size"         # Connections count
+      - "r_marketing_leadgen_automation" # Lead gen forms
+      - "r_events"                       # Retrieve events
+      - "rw_events"                      # Manage events
+
+  # Ad Account
+  account_id: "503061133"  # Votre Ad Account ID
+  
+  # Organization (pour les statistiques de page et lead forms)
+  organization_id: "5509810"  # Votre Organization ID LinkedIn
+
+  # Configuration de collecte
+  collection:
+    # Période de collecte (format YYYY-MM-DD)
+    start_date: "2017-01-01"
+    # end_date laissé vide = aujourd'hui
+    end_date: null
+
+    # Granularité des données
+    granularity: "DAILY"  # DAILY, MONTHLY, YEARLY, ALL
+
+    # Version API LinkedIn
+    api_version: "202509"
+
+  # Analytics - Pivots à collecter
+  analytics:
+    pivots:
+      - "CAMPAIGN"   # Données agrégées par campagne
+      - "CREATIVE"   # Données par creative individuelle
+
+  # Métriques à collecter (analytics)
+  metrics:
+    base:
+      - impressions
+      - clicks
+      - cost_in_usd
+      - cost_in_local_currency
+      - ctr
+      - average_cpc
+
+    conversions:
+      - total_conversions
+      - conversion_value_in_usd
+      - cost_per_conversion
+      - conversion_rate
+
+    engagement:
+      - likes
+      - comments
+      - shares
+      - follows
+      - engagement_rate
+      - clicks_on_company_page
+
+    video:
+      - video_views
+      - video_starts
+      - video_completions
+      - video_first_quartile_completions
+      - video_midpoint_completions
+      - video_third_quartile_completions
+      - video_completion_rate
+
+  # Budget - Métriques à collecter
+  budget_metrics:
+    - total_budget
+    - daily_budget
+    - bid_type
+    - bid_amount
+    - unit_cost
+    - start_date
+    - end_date
+    - status
+    - run_schedule_start
+    - run_schedule_end
+
+  # Lead Forms - Configuration
+  lead_forms:
+    # Période de collecte des réponses
+    collection_period_days: 30
+
+    # Champs à extraire
+    fields:
+      - email
+      - first_name
+      - last_name
+      - company
+      - job_title
+      - phone
+      - country
+      - custom_fields
+
+  # Ads Library - Configuration de recherche
+  ads_library:
+    # Mots-clés à rechercher dans les publicités
+    # Note: Vous pouvez laisser vide [] si vous ne voulez chercher que par annonceurs
+    keywords: []
+
+    # Annonceurs spécifiques à surveiller (noms exacts)
+    # Note: Vous pouvez laisser vide [] si vous ne voulez chercher que par mots-clés
+    # IMPORTANT: Au moins keywords OU advertisers doit être rempli
+    advertisers:
+      - "SKEMA BUSINESS SCHOOL"
+      - "NEOMA BUSINESS SCHOOL"
+      - "INSEAD"
+      - "IFG Executive Education"
+      - "ICN"
+      - "IAE"
+      - "HEC"
+      - "ESSEC BUSINESS SCHOOL"
+      - "ESCP BUSINESS SCHOOL"
+      - "EMLYON"
+      - "EDHEC BUSINESS SCHOOL"
+      - "Audencia"
+      # Ajoutez vos concurrents ici
+
+    # Pays à cibler (codes ISO à 2 lettres)
+    countries:
+      - "fr"  # France
+      # - "us"  # États-Unis
+      # - "gb"  # Royaume-Uni
+      # - "de"  # Allemagne
+
+    # Maximum de résultats par recherche (limite API)
+    max_results_per_search: 500
+
+
+# ============================================================
+# MICROSOFT CLARITY
+# ============================================================
+microsoft_clarity:
+  # API Credentials
+  project_id: "YOUR_CLARITY_PROJECT_ID"
+  api_key: "YOUR_CLARITY_API_KEY"
+
+  # API Configuration
+  api:
+    base_url: "https://www.clarity.ms/api/project-live-insights"
+    num_of_days: 1  # 1, 2 ou 3 maximum (limitation API)
+
+  # Métriques à collecter
+  metrics:
+    traffic:
+      - total_sessions
+      - total_users
+      - page_views
+
+    engagement:
+      - avg_engagement_time
+      - scroll_depth
+
+    frustration:
+      - dead_clicks
+      - rage_clicks
+      - quick_backs
+      - excessive_scrolling
+
+    errors:
+      - error_clicks
+      - script_errors
+
+    dimensions:
+      - browser_breakdown
+      - device_breakdown
+      - os_breakdown
+      - user_geography
+
+
+# ============================================================
+# SPYFU
+# ============================================================
+spyfu:
+  # API Credentials
+  api_key: "YOUR_SPYFU_API_KEY"
+
+  # Configuration globale
+  global:
+    country_code: "US"  # International SOS = US market
+
+  # Domaines à analyser
+  domains:
+    primary: "internationalsos.com"
+
+    # Liste des concurrents (primary sera ajouté automatiquement dans 'all')
+    competitors:
+    - "crisis24.com"
+    - "globalguardian.com"
+    - "alertmedia.com"
+    - "everbridge.com"
+    - "globalrescue.com"
+    - "restrata.com"
+
+  # Filtres par défaut
+  filters:
+    min_search_volume: 50
+    max_keyword_difficulty: 80
+    max_cost_per_click: 50.0
+    min_seo_clicks: 10
+
+  # Keywords ciblés pour l'analyse
+  keywords:
+    - "gsoc"
+    - "tabletop exercise"
+    - "critical event management"
+    - "safety measures"
+    - "short safety topics for work"
+    - "what is gsoc security"
+    - "global security operations center"
+    - "text updates"
+    - "inclement weather"
+    - "text alert app"
+    - "medical evacuation"
+    - "safety topics for meetings"
+    - "critical events"
+    - "what is duty of care"
+    - "situational awareness"
+    - "emergency broadcast system"
+    - "safety precautions"
+    - "emergency alert"
+    - "safety tips"
+    - "safety topics"
+    - "after action report"
+    - "after action review"
+    - "safety moment"
+    - "crisis management"
+    - "critical event"
+    - "duty of care in the workplace"
+    - "alerts"
+    - "active shooter response plan"
+    - "safety talks"
+    - "workplace safety topics"
+    - "travel risk management company"
+    - "travel risk management companies"
+    - "travel risk management solutions"
+    - "travel risk management services"
+    - "travel risk management software"
+    - "travel risk manager"
+    - "travel security risk management"
+    - "risk assessment for business travel"
+    - "corporate travel security"
+    - "global travel assessment system"
+    - "risk map travel"
+    - "security concern business travel"
+    - "duty of care corporate security"
+    - "duty of care and security"
+    - "duty of care in business"
+    - "duty of care at work"
+    - "duty of care for employees"
+    - "duty of care business"
+    - "employer's duty of care"
+    - "gsoc meaning security"
+    - "global security operations"
+    - "gsoc global security operations center"
+    - "global security operations center gsoc"
+    - "global security operations centre"
+    - "critical event management software"
+    - "critical event 2-way communication platform"
+    - "critical event management (variant)"
+    - "crisis response platform"
+    - "crisis management solution"
+    - "crisis planning platform"
+    - "define crisis"
+    - "crisis communication"
+    - "crisis management plan"
+    - "what is a crisis"
+    - "workplace emergency action plan"
+    - "types of crisis"
+    - "business resilience strategies"
+    - "business continuity plan example"
+    - "global operation security"
+    - "mass communication platforms"
+    - "mass communication software"
+    - "mass communication platform"
+    - "location risk awareness"
+    - "crises response workflow"
+    - "caring duty"
+    - "text alerts for businesses"
+    - "call tree"
+    - "calling tree"
+    - "notification system"
+    - "emergency notification system"
+
+  # Configuration des endpoints (pour activer/désactiver)
+  endpoints:
+    # Mensuel
+    domain_stats:
+      enabled: true
+
+    ppc_keywords:
+      enabled: true
+      page_size: 100
+      filters:
+        min_search_volume: 10
+
+    new_keywords:
+      enabled: true
+
+    seo_keywords:
+      enabled: true
+      search_type: "MostValuable"
+
+    most_valuable_keywords:
+      enabled: true
+      row_count: 100
+
+    top_pages:
+      enabled: true
+
+    # Trimestriel
+    domain_ad_history:
+      enabled: true
+
+    term_ad_history:
+      enabled: true
+
+    # À la demande
+    related_keywords:
+      enabled: true
+
+
+# ============================================================
+# AUTOMATISATION
+# ============================================================
+automation:
+  # Fréquences de collecte recommandées
+  schedules:
+    linkedin:
+      campaign_analytics: "daily"      # Quotidien à 3h
+      budget: "weekly"                 # Hebdomadaire (lundi)
+      lead_forms: "twice_daily"        # 2x/jour (8h, 18h)
+
+    clarity:
+      analytics: "daily"               # OBLIGATOIRE quotidien à 2h
+
+    spyfu:
+      ppc_keywords: "weekly"           # Hebdomadaire (dimanche)
+      seo_keywords: "weekly"           # Hebdomadaire (dimanche)
+      other: "monthly"                 # Mensuel (1er du mois)
+
+  # Logs
+  logging:
+    directory: "/var/log/marketing_collection"
+    retention_days: 30
+    level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+
+
+# ============================================================
+# EXPORT & BACKUP
+# ============================================================
+export:
+  # Formats d'export
+  formats:
+    json:
+      enabled: true
+      compression: false  # gzip compression
+
+    csv:
+      enabled: false
+      delimiter: ","
+
+    parquet:
+      enabled: false
+
+  # Backup
+  backup:
+    enabled: true
+    retention_days: 90
+
+    # Backup vers Google Cloud Storage (optionnel)
+    gcs:
+      enabled: false
+      bucket: "marketing-data-backup"
+      path: "backups/"
+
+
+# ============================================================
+# ALERTES & MONITORING
+# ============================================================
+monitoring:
+  # Alertes par email
+  alerts:
+    enabled: false
+    email: "admin@example.com"
+
+    # Conditions d'alerte
+    conditions:
+      - type: "data_freshness"
+        threshold_days: 2
+        message: "Données pas mises à jour depuis {days} jours"
+
+      - type: "collection_failure"
+        consecutive_failures: 3
+        message: "Échec de collecte {count} fois consécutives"
+
+      - type: "budget_alert"
+        budget_used_percentage: 80
+        message: "Budget utilisé à {percent}%"
+
+  # Dashboard
+  dashboard:
+    enabled: false
+    type: "looker_studio"  # looker_studio, tableau, metabase
+    url: null
+
+
+# ============================================================
+# ADVANCED SETTINGS
+# ============================================================
+advanced:
+  # Timeouts API (secondes)
+  timeouts:
+    linkedin: 60
+    clarity: 60
+    spyfu: 60
+
+  # Retry logic
+  retry:
+    max_attempts: 3
+    backoff_factor: 2  # Exponentiel : 2s, 4s, 8s
+
+  # Rate limiting
+  rate_limiting:
+    requests_per_minute: 30
+    pause_between_requests: 2  # secondes
+
+  # Déduplication BigQuery
+  deduplication:
+    enabled: true
+    merge_strategy: "WRITE_APPEND"  # WRITE_APPEND, WRITE_TRUNCATE
+
+
+# ============================================================
+# DEVELOPMENT & DEBUG
+# ============================================================
+development:
+  # Mode debug
+  debug_mode: false
+
+  # Dry run (ne pas uploader vers BigQuery)
+  dry_run: false
+
+  # Limiter le nombre de résultats (pour tests)
+  limit_results: null  # null = pas de limite, ou nombre (ex: 10)
+
+  # Verbose logging
+  verbose: false

@@ -1,0 +1,348 @@
+# ============================================================
+# EXEMPLE DE CONFIGURATION — NE PAS UTILISER DIRECTEMENT
+# ============================================================
+# Basé sur : Template basé sur Verbus Events — adapter domains/keywords/dataset par secteur
+#
+# INSTRUCTIONS :
+#   1. Copier ce fichier en "config.yaml"
+#   2. Remplacer tous les YOUR_* par vos vraies valeurs
+#   3. Ne jamais commiter config.yaml dans Git !
+#
+# Secrets à remplir :
+#   - YOUR_GCP_PROJECT_ID  → ID de votre projet Google Cloud
+#   - YOUR_LINKEDIN_ACCESS_TOKEN → Token OAuth LinkedIn (expire ~60 jours)
+#   - YOUR_CLARITY_PROJECT_ID   → ID du projet Microsoft Clarity
+#   - YOUR_CLARITY_API_KEY      → Clé API Microsoft Clarity
+#   - YOUR_SPYFU_API_KEY        → Clé API SpyFu
+# ============================================================
+
+# ============================================================
+# GOOGLE CLOUD & BIGQUERY
+# ============================================================
+google_cloud:
+  project_id: "YOUR_GCP_PROJECT_ID"
+  credentials_file: "../verbus-account-key.json"
+
+  datasets:
+    spyfu: "spyfu_events"
+
+  location: "europe-west9"
+
+
+# ============================================================
+# SPYFU - CONCURRENTS ÉVÉNEMENTIEL
+# ============================================================
+spyfu:
+  # API Credentials
+  api_key: "YOUR_SPYFU_API_KEY"
+
+  # Configuration globale
+  global:
+    country_code: "FR"
+
+  # Domaines concurrents du secteur événementiel à analyser
+  domains:
+    # Principaux concurrents
+    primary: "h2m-events.fr"
+
+    competitors:
+    - "h2m-events.fr"
+    - "anaisblanc.fr"
+    - "aveyronevents.fr"
+    - "agence-evenementielle-innovevents.fr"
+    - "agence-ye.fr"
+    - "purevents.fr"
+    - "gvevents.fr"
+    - "sop-events.fr"
+    - "juune-incentive.fr"
+    - "agence-nua.com"
+
+  # Comparaisons SEO (optionnel - à activer si nécessaire)
+  comparisons:
+    - domain: "h2m-events.fr"
+      compare_domain: "purevents.fr"
+    - domain: "h2m-events.fr"
+      compare_domain: "agence-ye.fr"
+
+  # Keywords ciblés pour l'analyse (utilisés par term_ad_history, related_keywords, etc.)
+  keywords:
+    - "incentive"
+    - "agence evenementiel"
+    - "agence événementielle"
+    - "agence d'événementiel"
+    - "événementiel"
+    - "organisation événement"
+    - "organisation événement entreprise"
+    - "création événementiel"
+    - "créateur evenementiel"
+    - "organisateur événementiel"
+    - "prestataire événementiel"
+    - "sop"
+    - "sop events"
+    - "pur"
+    - "team booster"
+    - "team building"
+    - "team building theatre"
+    - "team building développement durable"
+    - "jeu de piste"
+    - "activités team building"
+    - "afterwork"
+    - "afterwork entreprise"
+    - "animation cocktail entreprise"
+    - "live painting"
+    - "cours de cuisine"
+    - "simulateur de chute libre"
+    - "soirée d'entreprise"
+    - "soirée entreprise"
+    - "soirée d'entreprise original"
+    - "soirée de lancement"
+    - "soirée de gala"
+    - "soirée prestige"
+    - "soirée de noel entreprise"
+    - "dîner de gala"
+    - "événement entreprise original"
+    - "événement d'entreprise exemple"
+    - "événement d'entreprise original"
+    - "lancement de produit événementiel"
+    - "séminaire entreprise"
+    - "séminaires france"
+    - "séminaire toulouse"
+    - "séminaire montagne"
+    - "séminaire carcassonne"
+    - "lieu atypique seminaire"
+    - "salle de réunion atypique"
+    - "voyage entreprise"
+    - "organisation voyage d'entreprise"
+    - "voyage incentive"
+    - "voyages incentives"
+    - "agence de voyage pour entreprise"
+    - "incentive toulouse"
+    - "agence communication événementiel"
+    - "agence de communication evenementielle"
+    - "agence réceptive"
+    - "agence hotesse evenementiel"
+    - "agence événementielle luxe"
+    - "agence événementiel luxe"
+    - "agence événementielle luxe paris"
+    - "agence evenementiel toulouse"
+    - "agence événementielle toulouse"
+    - "agence d'événementiel toulouse"
+    - "agences événementielles toulouse"
+    - "événementiel toulouse"
+
+  # ============================================================
+  # CONFIGURATION DES ENDPOINTS API
+  # ============================================================
+  # Format: endpoint_name -> enabled + parameters
+  # ============================================================
+
+  # ---------------------------------------------------------
+  # 📊 DOMAIN STATS (getAllDomainStats)
+  # ---------------------------------------------------------
+  # Coût: 1 ligne par domaine = 10 lignes total
+  # Fréquence recommandée: Mensuelle
+  # ---------------------------------------------------------
+  domain_stats:
+    enabled: true
+    description: "Statistiques globales du domaine (SEO + PPC)"
+
+  # ---------------------------------------------------------
+  # 💰 PPC KEYWORDS (getMostSuccessful)
+  # ---------------------------------------------------------
+  # Coût: pageSize × nombre de domaines = 20 × 10 = 200 lignes
+  # Fréquence recommandée: Mensuelle
+  # ---------------------------------------------------------
+  ppc_keywords:
+    enabled: true
+    page_size: 20
+    search_type: "MostSuccessful"
+    description: "Mots-clés PPC les plus performants"
+
+  # ---------------------------------------------------------
+  # 🆕 NEW KEYWORDS (getNewKeywords)
+  # ---------------------------------------------------------
+  # Coût: pageSize × nombre de domaines = 10 × 10 = 100 lignes
+  # Fréquence recommandée: Mensuelle
+  # ---------------------------------------------------------
+  new_keywords:
+    enabled: true
+    page_size: 10
+    description: "Nouveaux mots-clés PPC apparus récemment"
+
+  # ---------------------------------------------------------
+  # 🔍 SEO KEYWORDS (getSeoKeywords)
+  # ---------------------------------------------------------
+  # Coût: pageSize × nombre de domaines = 25 × 10 = 250 lignes
+  # Fréquence recommandée: Mensuelle
+  # ---------------------------------------------------------
+  seo_keywords:
+    enabled: true
+    page_size: 25
+    search_type: "MostValuable"
+    description: "Mots-clés SEO organiques les plus précieux"
+
+  # ---------------------------------------------------------
+  # 💎 MOST VALUABLE KEYWORDS (getMostValuableKeywords)
+  # ---------------------------------------------------------
+  # Coût: pageSize × nombre de domaines = 25 × 10 = 250 lignes
+  # Fréquence recommandée: Mensuelle
+  # ---------------------------------------------------------
+  most_valuable_keywords:
+    enabled: true
+    page_size: 25
+    description: "Mots-clés SEO avec le plus de valeur estimée"
+
+  # ---------------------------------------------------------
+  # 📄 TOP PAGES (getMostTrafficTopPages)
+  # ---------------------------------------------------------
+  # Coût: pageSize × nombre de domaines = 10 × 10 = 100 lignes
+  # Fréquence recommandée: Mensuelle
+  # ---------------------------------------------------------
+  top_pages:
+    enabled: true
+    page_size: 10
+    search_type: "MostTraffic"
+    description: "Pages avec le plus de trafic organique"
+
+  # ---------------------------------------------------------
+  # 📢 DOMAIN AD HISTORY (getDomainAdHistory)
+  # ---------------------------------------------------------
+  # Coût: pageSize × nombre de domaines = 23 × 10 = 230 lignes
+  # Fréquence recommandée: Trimestrielle
+  # ---------------------------------------------------------
+  domain_ad_history:
+    enabled: true
+    page_size: 23
+    start_date: "2024-10-01"
+    end_date: "2024-12-31"
+    description: "Historique des annonces publicitaires par domaine"
+
+  # ---------------------------------------------------------
+  # 🎯 TERM AD HISTORY (getTermAdHistoryWithStats)
+  # ---------------------------------------------------------
+  # Coût: pageSize × nombre de keywords = 7 × X lignes
+  # Fréquence recommandée: Trimestrielle (sur demande)
+  # Note: Nécessite une liste de keywords spécifiques
+  # ---------------------------------------------------------
+  term_ad_history:
+    enabled: true
+    page_size: 7
+    start_date: "2024-10-01"
+    end_date: "2024-12-31"
+    keywords:
+      - "incentive"
+      - "agence evenementiel"
+      - "agence événementielle"
+      - "agence d'événementiel"
+      - "événementiel"
+      - "organisation événement"
+      - "organisation événement entreprise"
+      - "création événementiel"
+      - "créateur evenementiel"
+      - "organisateur événementiel"
+      - "prestataire événementiel"
+      - "sop"
+      - "sop events"
+      - "pur"
+      - "team booster"
+      - "team building"
+      - "team building theatre"
+      - "team building développement durable"
+      - "jeu de piste"
+      - "activités team building"
+      - "afterwork"
+      - "afterwork entreprise"
+      - "animation cocktail entreprise"
+      - "live painting"
+      - "cours de cuisine"
+      - "simulateur de chute libre"
+      - "soirée d'entreprise"
+      - "soirée entreprise"
+      - "soirée d'entreprise original"
+      - "soirée de lancement"
+      - "soirée de gala"
+      - "soirée prestige"
+      - "soirée de noel entreprise"
+      - "dîner de gala"
+      - "événement entreprise original"
+      - "événement d'entreprise exemple"
+      - "événement d'entreprise original"
+      - "lancement de produit événementiel"
+      - "séminaire entreprise"
+      - "séminaires france"
+      - "séminaire toulouse"
+      - "séminaire montagne"
+      - "séminaire carcassonne"
+      - "lieu atypique seminaire"
+      - "salle de réunion atypique"
+      - "voyage entreprise"
+      - "organisation voyage d'entreprise"
+      - "voyage incentive"
+      - "voyages incentives"
+      - "agence de voyage pour entreprise"
+      - "incentive toulouse"
+      - "agence communication événementiel"
+      - "agence de communication evenementielle"
+      - "agence réceptive"
+      - "agence hotesse evenementiel"
+      - "agence événementielle luxe"
+      - "agence événementiel luxe"
+      - "agence événementielle luxe paris"
+      - "agence evenementiel toulouse"
+      - "agence événementielle toulouse"
+      - "agence d'événementiel toulouse"
+      - "agences événementielles toulouse"
+      - "événementiel toulouse"
+      - "agence événementielle bordeaux"
+      - "agence événementielle paris"
+      - "événements aveyron"
+      - "miroir sur pied"
+      - "tonneau"
+      - "candy bar"
+      - "emploi événementiel toulouse"
+      - "job evenementiel toulouse"
+    description: "Historique des annonces pour des mots-clés spécifiques"
+
+  # ---------------------------------------------------------
+  # 🔗 RELATED KEYWORDS (getRelatedKeywords)
+  # ---------------------------------------------------------
+  # Coût: pageSize × nombre de keywords = 11 × X lignes
+  # Fréquence recommandée: À la demande
+  # Note: Activer uniquement pour recherche ponctuelle
+  # ---------------------------------------------------------
+  related_keywords:
+    enabled: false  # Activer uniquement sur demande
+    page_size: 11
+    keywords:
+      - "agence événementielle"
+      - "organisation événement"
+      - "team building"
+    description: "Mots-clés associés pour expansion sémantique"
+
+
+# ============================================================
+# 📊 RÉSUMÉ DU COÛT API (pour 10 domaines)
+# ============================================================
+#
+# MENSUEL (6 scripts):
+# - Domain Stats:              10 lignes
+# - PPC Keywords:             200 lignes
+# - New Keywords:             100 lignes
+# - SEO Keywords:             250 lignes
+# - Most Valuable Keywords:   250 lignes
+# - Top Pages:                100 lignes
+# ----------------------------------------
+# TOTAL MENSUEL:              910 lignes (~$13.55/mois)
+#
+# TRIMESTRIEL (1 script):
+# - Domain Ad History:        230 lignes
+# ----------------------------------------
+# TOTAL TRIMESTRIEL:          230 lignes (~$3.42/trimestre = $1.14/mois)
+#
+# À LA DEMANDE (désactivés):
+# - Term Ad History:          Variable
+# - Related Keywords:         Variable
+#
+# ============================================================
+# COÛT TOTAL ESTIMÉ: ~$14.70/mois pour 10 concurrents événementiel
+# ============================================================
