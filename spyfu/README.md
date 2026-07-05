@@ -5,6 +5,7 @@ Collection complète de scripts Python pour récupérer et analyser les données
 ## 📋 Table des matières
 
 - [Vue d'ensemble](#vue-densemble)
+- [Déploiement Cloud (production)](#déploiement-cloud-production)
 - [Prérequis](#prérequis)
 - [Installation](#installation)
 - [Configuration](#configuration)
@@ -14,6 +15,38 @@ Collection complète de scripts Python pour récupérer et analyser les données
 - [Vues d'analyse](#vues-danalyse)
 - [Exemples de requêtes](#exemples-de-requêtes)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## ☁️ Déploiement Cloud (production)
+
+En production, les scripts sont exécutés via **Cloud Run Jobs** déclenchés mensuellement par Cloud Scheduler. Chaque client dispose de son propre job et projet GCP.
+
+| Dossier | Client | Projet GCP | Planification |
+|---------|--------|------------|---------------|
+| `cloud_job_epbs/` | École des Ponts | `ecoledesponts` | 1er du mois, 1h |
+| `cloud_job_sos/` | International SOS | `international-sos-479209` | 1er du mois, 1h |
+| `cloud_job_spyfu_monthly/` | EPBS + SOS + Verbus (4 jobs) | multiple | 1er du mois, 1h–1h40 |
+| `cloud_job_verbus/` | Verbus (events/scolaires/transport/voyages) | `verbus-480211` | 1er du mois, 1h |
+
+Pour déployer un job :
+
+```bash
+cd cloud_job_epbs      # ou cloud_job_sos, cloud_job_verbus, etc.
+./deploy.sh
+```
+
+Pour tester manuellement :
+
+```bash
+gcloud run jobs execute spyfu-epbs-collection \
+    --region=europe-west1 \
+    --project=ecoledesponts
+```
+
+Voir le `README.md` de chaque sous-dossier pour les détails de déploiement.
+
+Pour l'exécution locale (développement) : utiliser `run_all_spyfu_epbs.sh` ou lancer directement les scripts dans `scripts/`.
 
 ---
 
