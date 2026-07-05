@@ -48,7 +48,7 @@ class LinkedInCampaignAnalytics:
         """Retourne les headers requis pour l'API LinkedIn Marketing"""
         return {
             "Authorization": f"Bearer {self.access_token}",
-            "LinkedIn-Version": "202509",
+            "LinkedIn-Version": "202601",
             "X-Restli-Protocol-Version": "2.0.0"
         }
 
@@ -60,18 +60,13 @@ class LinkedInCampaignAnalytics:
             list: Liste des comptes publicitaires
         """
         url = f"{self.base_url}/adAccounts"
-        params = {"q": "search"}
+        query_params = "q=search&search=(status:(values:List(ACTIVE,CANCELED,DRAFT,REMOVED)))&count=100"
+        full_url = f"{url}?{query_params}"
 
-        response = requests.get(
-            url,
-            headers=self._get_headers(),
-            params=params
-        )
+        response = requests.get(full_url, headers=self._get_headers())
 
         if response.status_code != 200:
-            print(f"Erreur API: {response.status_code}")
-            print(f"URL: {response.url}")
-            print(f"Réponse: {response.text}")
+            print(f"Erreur API: {response.status_code} - {response.text}")
             response.raise_for_status()
 
         data = response.json()
@@ -87,30 +82,42 @@ class LinkedInCampaignAnalytics:
         Returns:
             list: Liste des campagnes avec leurs détails
         """
-        # Utiliser l'account_id passé en paramètre ou celui de l'instance
         acc_id = account_id or self.account_id
 
         if not acc_id:
             raise ValueError("account_id est requis. Passez-le en paramètre ou lors de l'initialisation.")
 
-        # Nouvelle URL avec account_id dans le path
         url = f"{self.base_url}/adAccounts/{acc_id}/adCampaigns"
-        params = {"q": "search"}
+        # Le finder q=search requiert un critère explicite — sans search=(status:...) l'API retourne []
+        # L'URL est construite manuellement car requests encode les parenthèses que LinkedIn refuse
+        all_campaigns = []
+        start = 0
+        count = 100
+        max_campaigns = 2000
 
-        response = requests.get(
-            url,
-            headers=self._get_headers(),
-            params=params
-        )
+        while start < max_campaigns:
+            query_params = (
+                f"q=search"
+                f"&search=(status:(values:List(ACTIVE,PAUSED,COMPLETED)))"
+                f"&start={start}&count={count}"
+            )
+            full_url = f"{url}?{query_params}"
 
-        if response.status_code != 200:
-            print(f"Erreur API: {response.status_code}")
-            print(f"URL: {response.url}")
-            print(f"Réponse: {response.text}")
-            response.raise_for_status()
+            response = requests.get(full_url, headers=self._get_headers())
 
-        data = response.json()
-        return data.get("elements", [])
+            if response.status_code != 200:
+                print(f"Erreur API: {response.status_code} - {response.text}")
+                response.raise_for_status()
+
+            data = response.json()
+            elements = data.get("elements", [])
+            all_campaigns.extend(elements)
+
+            if len(elements) < count:
+                break
+            start += count
+
+        return all_campaigns
 
     def get_analytics(self,
                       campaign_urns: List[str],
@@ -166,7 +173,10 @@ class LinkedInCampaignAnalytics:
             # LinkedIn n'accepte PAS l'encodage URL standard pour dateRange et campaigns
             # Il faut construire l'URL manuellement en n'encodant que les URNs
             campaign_urn_encoded = campaign_urn.replace(':', '%3A')
-            date_range_str = f"(start:(year:{start_date.year},month:{start_date.month},day:{start_date.day}))"
+            date_range_str = (
+                f"(start:(year:{start_date.year},month:{start_date.month},day:{start_date.day}),"
+                f"end:(year:{end_date.year},month:{end_date.month},day:{end_date.day}))"
+            )
             campaigns_str = f"List({campaign_urn_encoded})"
 
             # Construire les fields (si spécifiés)
@@ -579,6 +589,92 @@ class LinkedInCampaignAnalytics:
             raise
 
 
+    def get_analytics_by_account(self,
+                                  account_id: str,
+                                  start_date: datetime,
+                                  end_date: datetime,
+                                  pivot: str = "CAMPAIGN",
+                                  time_granularity: str = "DAILY",
+                                  fields: Optional[List[str]] = None) -> Dict:
+        """
+        Récupère les analytics pour tout le compte en un seul appel (via accounts=List(...)).
+        Bien plus efficace que de lister les campagnes puis d'interroger chacune.
+        """
+        url = f"{self.base_url}/adAnalytics"
+        account_urn_encoded = f"urn:li:sponsoredAccount:{account_id}".replace(':', '%3A')
+
+        date_range_str = (
+            f"(start:(year:{start_date.year},month:{start_date.month},day:{start_date.day}),"
+            f"end:(year:{end_date.year},month:{end_date.month},day:{end_date.day}))"
+        )
+
+        fields_str = f"&fields={','.join(fields)}" if fields else ""
+
+        all_elements = []
+        start = 0
+        count = 500  # LinkedIn permet jusqu'à 500 par page pour adAnalytics
+        known_total = None
+        num_days = (end_date - start_date).days + 1
+        # Cap de sécurité: LinkedIn pagine parfois circulairement après les vraies données
+        safety_cap = max(50_000, num_days * 2000)
+
+        while True:
+            query_params = (
+                f"q=analytics&pivot={pivot}"
+                f"&dateRange={date_range_str}"
+                f"&timeGranularity={time_granularity}"
+                f"&accounts=List({account_urn_encoded})"
+                f"&start={start}&count={count}"
+                f"{fields_str}"
+            )
+            full_url = f"{url}?{query_params}"
+
+            if start == 0:
+                print(f"\n🔍 URL analytics (tronquée): {full_url[:150]}...")
+
+            response = requests.get(full_url, headers=self._get_headers(), timeout=30)
+
+            if response.status_code == 429:
+                retry_after = int(response.headers.get('Retry-After', 10))
+                print(f"  Rate limit, pause de {retry_after}s...")
+                time.sleep(retry_after)
+                continue
+
+            if response.status_code != 200:
+                print(f"  Erreur API: {response.status_code} - {response.text[:300]}")
+                response.raise_for_status()
+
+            data = response.json()
+
+            # Récupérer paging.total si disponible (arrêt propre sans pagination circulaire)
+            paging = data.get("paging", {})
+            if known_total is None and "total" in paging:
+                known_total = paging["total"]
+                print(f"  📊 Total annoncé par LinkedIn: {known_total}")
+
+            elements = data.get("elements", [])
+            all_elements.extend(elements)
+            print(f"  Page {start // count + 1}: {len(elements)} élément(s) — total: {len(all_elements)}")
+
+            # Arrêt si page incomplète
+            if len(elements) < count:
+                break
+
+            start += count
+
+            # Arrêt basé sur paging.total (évite pagination circulaire)
+            if known_total is not None and start >= known_total:
+                print(f"  ✓ Fin des données (start={start} >= total={known_total})")
+                break
+
+            # Arrêt de sécurité si LinkedIn pagine circulairement
+            if len(all_elements) >= safety_cap:
+                print(f"  ⚠️  Cap de sécurité atteint ({len(all_elements)} éléments pour {num_days} jours)")
+                break
+
+        return {"elements": all_elements}
+
+
 def main():
     """
     Exemple d'utilisation du client LinkedIn Campaign Analytics
@@ -609,11 +705,9 @@ def main():
     DATASET_ID = google_config['datasets']['linkedin']
     CREDENTIALS_PATH = None if is_cloud_function else google_config.get('credentials_file')
 
-    # Mode automatisation : récupérer uniquement les données d'hier
-    # (les données LinkedIn du jour en cours ne sont pas complètes)
-    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-    START_DATE = yesterday
-    END_DATE = yesterday
+    yesterday = datetime.now() - timedelta(days=1)
+    START_DATE = (datetime.now() - timedelta(days=9)).strftime('%Y-%m-%d')
+    END_DATE = yesterday.strftime('%Y-%m-%d')
     GRANULARITY = 'DAILY'
     PIVOTS = linkedin_config['pivots']
 
@@ -636,51 +730,9 @@ def main():
         credentials_path=CREDENTIALS_PATH  # Utiliser le chemin du fichier JSON
     )
 
-    # Étape 1: Récupérer les campagnes
-    print("=" * 70)
-    print("1. Récupération des campagnes")
-    print("=" * 70)
-
-    try:
-        campaigns = client.get_campaigns()
-        print(f"\n✓ {len(campaigns)} campagne(s) trouvée(s):\n")
-
-        campaign_urns = []
-
-        # Récupérer TOUTES les campagnes
-        for campaign in campaigns:
-            campaign_id = campaign.get("id")
-            campaign_name = campaign.get("name", "Sans nom")
-            campaign_status = campaign.get("status", "Unknown")
-            campaign_urn = f"urn:li:sponsoredCampaign:{campaign_id}"
-
-            campaign_urns.append(campaign_urn)
-
-        # Afficher un résumé
-        print(f"  Total: {len(campaign_urns)} campagnes sélectionnées")
-
-        # Afficher les 5 premières
-        for campaign in campaigns[:5]:
-            campaign_name = campaign.get("name", "Sans nom")
-            campaign_status = campaign.get("status", "Unknown")
-            print(f"  - {campaign_name} ({campaign_status})")
-
-        if len(campaigns) > 5:
-            print(f"  ... et {len(campaigns) - 5} autres campagnes")
-        print()
-
-        if not campaign_urns:
-            print("Aucune campagne trouvée.")
-            return
-
-    except Exception as e:
-        print(f"✗ Erreur: {e}")
-        return
-
     # Vérifier si les données existent déjà pour hier
-    yesterday_date = datetime.strptime(yesterday, '%Y-%m-%d')
-    campaign_exists = client.check_date_exists("campaign_analytics", yesterday_date)
-    creative_exists = client.check_date_exists("creative_analytics", yesterday_date)
+    campaign_exists = client.check_date_exists("campaign_analytics", yesterday)
+    creative_exists = client.check_date_exists("creative_analytics", yesterday)
 
     if campaign_exists and creative_exists:
         print("\n⚠️  Données déjà collectées pour hier.")
@@ -690,23 +742,22 @@ def main():
         print("=" * 70)
         return
 
-    # Étape 2: Récupérer les analytics
+    # Récupérer les analytics directement par compte (sans lister les campagnes)
     print("=" * 70)
-    print("2. Récupération des analytics")
+    print("Récupération des analytics via account-level query")
     print("=" * 70)
 
     try:
-        # Utiliser les dates depuis la configuration
         start_date = datetime.strptime(START_DATE, '%Y-%m-%d')
         end_date = datetime.strptime(END_DATE, '%Y-%m-%d')
 
         print(f"\nPériode: {start_date.date()} à {end_date.date()}")
-        print(f"Nombre de campagnes: {len(campaign_urns)}\n")
+        print(f"Compte: urn:li:sponsoredAccount:{ACCOUNT_ID}\n")
 
-        # Liste complète des champs disponibles
+        # approximateMemberReach n'est disponible qu'en granularité ALL, pas DAILY
         all_fields = [
-            "pivotValues",  # IMPORTANT: nécessaire pour identifier les campagnes/creatives
-            "dateRange",    # IMPORTANT: période des données
+            "pivotValues",
+            "dateRange",
             "impressions",
             "clicks",
             "costInUsd",
@@ -721,24 +772,24 @@ def main():
             "videoViews",
             "videoStarts",
             "videoCompletions",
-            "approximateMemberReach"
         ]
+        if GRANULARITY == "ALL":
+            all_fields.append("approximateMemberReach")
 
         # PARTIE 1: Analytics par CAMPAIGN
         print("\n→ Récupération des analytics par CAMPAIGN...")
-        analytics_campaign = client.get_analytics(
-            campaign_urns=campaign_urns,
+        analytics_campaign = client.get_analytics_by_account(
+            account_id=ACCOUNT_ID,
             start_date=start_date,
             end_date=end_date,
             pivot="CAMPAIGN",
-            time_granularity="ALL",
+            time_granularity=GRANULARITY,
             fields=all_fields
         )
 
         metrics_campaign = client.calculate_metrics(analytics_campaign)
-        print(f"✓ {len(metrics_campaign)} campagnes avec données\n")
+        print(f"✓ {len(metrics_campaign)} entrées campaign avec données\n")
 
-        # Afficher un résumé des campagnes
         print("Résumé des performances par CAMPAIGN:")
         print("-" * 70)
 
@@ -749,8 +800,7 @@ def main():
         total_reactions = sum(m["reactions"] for m in metrics_campaign)
         total_comments = sum(m["comments"] for m in metrics_campaign)
         total_shares = sum(m["shares"] for m in metrics_campaign)
-        
-        # Compter combien de campagnes ont des engagements
+
         campaigns_with_engagement = sum(1 for m in metrics_campaign if m["totalEngagements"] > 0)
         campaigns_with_reactions = sum(1 for m in metrics_campaign if m["reactions"] > 0)
         campaigns_with_comments = sum(1 for m in metrics_campaign if m["comments"] > 0)
@@ -770,29 +820,26 @@ def main():
         print(f"Average CTR: {(total_clicks/total_impressions*100):.2f}%" if total_impressions > 0 else "N/A")
         print(f"Average CPC: ${(total_cost/total_clicks):.2f}" if total_clicks > 0 else "N/A")
 
-        # Exporter les résultats par campagne
         client.export_to_json(metrics_campaign, "campaign_analytics.json")
         client.export_to_csv(metrics_campaign, "campaign_analytics.csv")
         print("✓ Données exportées: campaign_analytics.json / campaign_analytics.csv")
 
-        # Upload vers BigQuery
         client.upload_to_bigquery(metrics_campaign, "campaign_analytics")
 
-        # PARTIE 2: Analytics par CREATIVE (ads individuels)
+        # PARTIE 2: Analytics par CREATIVE
         print("\n→ Récupération des analytics par CREATIVE...")
-        analytics_creative = client.get_analytics(
-            campaign_urns=campaign_urns,
+        analytics_creative = client.get_analytics_by_account(
+            account_id=ACCOUNT_ID,
             start_date=start_date,
             end_date=end_date,
             pivot="CREATIVE",
-            time_granularity="ALL",
+            time_granularity=GRANULARITY,
             fields=all_fields
         )
 
         metrics_creative = client.calculate_metrics(analytics_creative)
-        print(f"✓ {len(metrics_creative)} creatives avec données\n")
+        print(f"✓ {len(metrics_creative)} entrées creative avec données\n")
 
-        # Afficher un résumé des creatives
         print("Résumé des performances par CREATIVE:")
         print("-" * 70)
 
@@ -803,8 +850,7 @@ def main():
         total_reactions_cr = sum(m["reactions"] for m in metrics_creative)
         total_comments_cr = sum(m["comments"] for m in metrics_creative)
         total_shares_cr = sum(m["shares"] for m in metrics_creative)
-        
-        # Compter combien de creatives ont des engagements
+
         creatives_with_engagement = sum(1 for m in metrics_creative if m["totalEngagements"] > 0)
         creatives_with_reactions = sum(1 for m in metrics_creative if m["reactions"] > 0)
         creatives_with_comments = sum(1 for m in metrics_creative if m["comments"] > 0)
@@ -824,12 +870,10 @@ def main():
         print(f"Average CTR: {(total_clicks_cr/total_impressions_cr*100):.2f}%" if total_impressions_cr > 0 else "N/A")
         print(f"Average CPC: ${(total_cost_cr/total_clicks_cr):.2f}" if total_clicks_cr > 0 else "N/A")
 
-        # Exporter les résultats par creative
         client.export_to_json(metrics_creative, "creative_analytics.json")
         client.export_to_csv(metrics_creative, "creative_analytics.csv")
         print("✓ Données exportées: creative_analytics.json / creative_analytics.csv")
 
-        # Upload vers BigQuery
         client.upload_to_bigquery(metrics_creative, "creative_analytics")
 
         print("\n" + "=" * 70)

@@ -1,0 +1,18 @@
+steps:
+  # Build l'image Docker
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_IMAGE_NAME}'
+      - '-f'
+      - 'cloud_job_verbus/Dockerfile'
+      - '.'
+
+images:
+  - '${_IMAGE_NAME}'
+
+substitutions:
+  _IMAGE_NAME: 'gcr.io/verbus-480211/spyfu-verbus-collection'
+
+timeout: '1200s'

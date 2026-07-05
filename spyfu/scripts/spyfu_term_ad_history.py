@@ -32,16 +32,12 @@ class SpyFuTermAdHistoryCollector:
         keyword: str,
         domain: Optional[str] = None,
         country_code: str = "US",
-        rowcount: int = 7,
+        rowcount: int = 100,
         min_date: Optional[str] = None,
         max_date: Optional[str] = None
-    ) -> Dict:
-        """Récupère l'historique des annonces pour un mot-clé
-        
-        Returns:
-            Dict contenant:
-                - 'ads': List[Dict] - Les annonces
-                - 'domain_stats': List[Dict] - Les statistiques par domaine
+    ) -> List[Dict]:
+        """Récupère TOUS les annonceurs et annonces pour un mot-clé via pagination complète.
+        Aucun filtre sur le spend — on veut chaque annonceur qui se positionne sur ce terme.
         """
         endpoint = f"{self.BASE_URL}/getTermAdHistoryWithStats"
 
@@ -49,95 +45,80 @@ class SpyFuTermAdHistoryCollector:
             max_date = datetime.now().strftime("%Y-%m-%d")
         if not min_date:
             min_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
-        
-        # L'API utilise directement le code pays en LETTRES (US, UK, CA, AU)
-        # Pas besoin de conversion numérique contrairement à ce que la doc suggère
-
-        params = {
-            "Term": keyword,  # API utilise Term au lieu de keyword
-            "countryCode": country_code,  # Code pays en LETTRES (US, UK, CA, AU)
-            "rowcount": rowcount,
-            "minDate": min_date,
-            "maxDate": max_date,
-            "api_key": self.api_key
-        }
-
-        if domain:
-            params["domain"] = domain
 
         headers = {"Accept": "application/json"}
+        all_ads = []
+        seen_ad_ids = set()
+        starting_row = 1
 
-        try:
-            print(f"\n🔍 Récupération de l'historique des annonces pour '{keyword}'...")
-            print(f"   📡 Endpoint: {endpoint}")
-            print(f"   📋 Paramètres:")
-            print(f"      - Term: {params['Term']}")
-            print(f"      - countryCode: {params['countryCode']}")
-            print(f"      - rowcount: {params['rowcount']}")
-            print(f"      - minDate: {params['minDate']}")
-            print(f"      - maxDate: {params['maxDate']}")
+        print(f"\n🔍 Récupération complète pour '{keyword}' ({min_date} à {max_date})...")
+
+        while True:
+            params = {
+                "Term": keyword,
+                "countryCode": country_code,
+                "rowcount": rowcount,
+                "startingRow": starting_row,
+                "minDate": min_date,
+                "maxDate": max_date,
+                "api_key": self.api_key
+            }
             if domain:
-                print(f"      - domain: {domain}")
+                params["domain"] = domain
 
-            response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
+            try:
+                response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
+                response.raise_for_status()
+                data = response.json()
 
-            print(f"   🌐 Status Code: {response.status_code}")
+                page_ads = []
 
-            response.raise_for_status()
+                # Extraire depuis "domains" (structure principale)
+                if data.get("domains"):
+                    for domain_data in data["domains"]:
+                        page_ads.extend(domain_data.get("ads", []))
 
-            data = response.json()
+                # Fusionner avec "topAds" (peut contenir des ads absentes de "domains")
+                if data.get("topAds"):
+                    for ad in data["topAds"]:
+                        ad_id = ad.get("adId")
+                        if ad_id not in seen_ad_ids:
+                            page_ads.append(ad)
 
-            # Log détaillé de la réponse
-            print(f"   📦 Clés dans la réponse: {list(data.keys())}")
+                # Dédupliquer par adId sur cette page
+                new_ads = []
+                for ad in page_ads:
+                    ad_id = ad.get("adId")
+                    if ad_id not in seen_ad_ids:
+                        seen_ad_ids.add(ad_id)
+                        new_ads.append(ad)
 
-            # L'API retourne les annonces dans "topAds" ET dans "domains"
-            # Structure: {"resultCount": N, "domains": [...], "topAds": [...]}
+                if not new_ads:
+                    break
 
-            ads = []
-            domain_stats = []
+                all_ads.extend(new_ads)
+                print(f"  Page {starting_row}: {len(new_ads)} nouvelles annonces")
 
-            # Extraire les statistiques des domaines
-            if "domains" in data and data["domains"]:
-                print(f"   📊 {len(data['domains'])} domaines avec annonces")
-                for domain_data in data["domains"]:
-                    # Extraire les annonces du domaine
-                    domain_ads = domain_data.get("ads", [])
-                    ads.extend(domain_ads)
-                    
-                    # Extraire les statistiques du domaine
-                    domain_stats.append({
-                        "domain_name": domain_data.get("domainName"),
-                        "budget": domain_data.get("budget"),
-                        "coverage": domain_data.get("coverage"),
-                        "percentage_leaderboard": domain_data.get("percentageLeaderboard"),
-                        "total_ads_purchased": domain_data.get("totalAdsPurchased"),
-                        "ad_count": domain_data.get("adCount")
-                    })
-                print(f"   📊 {len(ads)} annonces extraites des domaines")
-                print(f"   📊 {len(domain_stats)} domaines avec statistiques")
+                total = data.get("resultCount")
+                if total is not None and len(all_ads) >= total:
+                    break
 
-            # Récupérer aussi depuis topAds si disponible
-            if "topAds" in data and data["topAds"]:
-                top_ads = data["topAds"]
-                print(f"   📊 {len(top_ads)} annonces trouvées dans 'topAds'")
-                # On privilégie topAds si ads est vide
-                if not ads:
-                    ads = top_ads
+                if len(page_ads) < rowcount:
+                    break
 
-            # Debug si toujours vide
-            if len(ads) == 0:
-                print(f"   ⚠️  Réponse complète de l'API:")
-                print(f"   {json.dumps(data, indent=2)[:1000]}")  # Premiers 1000 chars
+                starting_row += rowcount
 
-            print(f"   ✓ {len(ads)} annonces récupérées pour '{keyword}'")
-            return {"ads": ads, "domain_stats": domain_stats}
+            except requests.exceptions.RequestException as e:
+                print(f"   ✗ Erreur API pour '{keyword}' (ligne {starting_row}): {e}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"   Détails: {e.response.text}")
+                break
 
-        except requests.exceptions.RequestException as e:
-            print(f"   ✗ Erreur API pour '{keyword}': {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"   📄 Status: {e.response.status_code}")
-                print(f"   📄 Détails: {e.response.text}")
-            return {"ads": [], "domain_stats": []}
+        if not all_ads:
+            print(f"   ⚠️  Aucune annonce trouvée pour '{keyword}'")
+
+        print(f"   ✓ {len(all_ads)} annonces récupérées pour '{keyword}'")
+        return all_ads
 
     # Alias pour compatibilité
     def get_term_ad_history_with_stats(self, *args, **kwargs):
@@ -180,52 +161,26 @@ class SpyFuTermAdHistoryCollector:
         
         return parsed_data
 
-    def parse_domain_stats(self, domain_stat: Dict, keyword: str, country_code: str) -> Dict:
-        """
-        Parse les statistiques d'un domaine au format BigQuery
-
-        Args:
-            domain_stat: Statistiques du domaine depuis l'API
-            keyword: Keyword recherché
-            country_code: Code pays
-        """
-        # Les clés dans domain_stat sont déjà en snake_case depuis get_term_ad_history
-        # Mais on doit les récupérer correctement
-        return {
-            "keyword": keyword,
-            "domain_name": domain_stat.get("domain_name"),
-            "budget": domain_stat.get("budget"),
-            "coverage": domain_stat.get("coverage", 0.0),  # Valeur par défaut 0.0
-            "percentage_leaderboard": domain_stat.get("percentage_leaderboard", 0.0),  # Valeur par défaut 0.0
-            "total_ads_purchased": domain_stat.get("total_ads_purchased"),
-            "ad_count": domain_stat.get("ad_count"),
-            "country_code": country_code,
-            "retrieved_at": datetime.now()
-        }
-
     def collect_keywords(
         self,
         keywords: List[str],
         country_code: str = "US",
-        rowcount: int = 7,
+        rowcount: int = 100,
         min_date: Optional[str] = None,
         max_date: Optional[str] = None
-    ) -> Dict[str, List[Dict]]:
+    ) -> List[Dict]:
         """Collecte les données pour tous les mots-clés
-        
+
         Returns:
-            Dict contenant:
-                - 'ads': List[Dict] - Toutes les annonces
-                - 'domain_stats': List[Dict] - Toutes les statistiques de domaines
+            List[Dict] - Toutes les annonces
         """
         if not keywords:
             raise ValueError("La liste de mots-clés ne peut pas être vide")
 
         all_ads = []
-        all_domain_stats = []
 
         for keyword in keywords:
-            result = self.get_term_ad_history(
+            raw_ads = self.get_term_ad_history(
                 keyword=keyword,
                 country_code=country_code,
                 rowcount=rowcount,
@@ -233,23 +188,12 @@ class SpyFuTermAdHistoryCollector:
                 max_date=max_date
             )
 
-            raw_ads = result.get("ads", [])
-            raw_domain_stats = result.get("domain_stats", [])
-
-            # Déterminer la source des annonces
-            source = "domains" if raw_domain_stats else "topAds"
-
             # Parser les annonces
             for ad in raw_ads:
-                parsed = self.parse_ad_data(ad, keyword, country_code, source=source)
+                parsed = self.parse_ad_data(ad, keyword, country_code, source="api")
                 all_ads.append(parsed)
 
-            # Parser les statistiques de domaines
-            for domain_stat in raw_domain_stats:
-                parsed = self.parse_domain_stats(domain_stat, keyword, country_code)
-                all_domain_stats.append(parsed)
-
-        return {"ads": all_ads, "domain_stats": all_domain_stats}
+        return all_ads
 
     def export_to_json(self, data: List[Dict], filename: str):
         """Exporte les données en JSON"""
@@ -305,28 +249,12 @@ class SpyFuTermAdHistoryCollector:
                 return
 
             # Conversion selon le schéma BigQuery
-            # Pour term_domain_stats : budget et coverage en FLOAT, les autres en INTEGER
-            # Pour term_ad_history : tous en FLOAT
-
-            if table_id == "term_domain_stats":
-                # Colonnes qui restent en FLOAT
-                float_cols = ['budget', 'coverage']
-                for col in float_cols:
-                    if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors='coerce').astype('float64')
-                
-                # Colonnes qui doivent être INTEGER (arrondir puis convertir en int64)
-                int_cols = ['percentage_leaderboard', 'total_ads_purchased', 'ad_count']
-                for col in int_cols:
-                    if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors='coerce').round().astype('int64')
-            else:
-                # Pour term_ad_history, tout en float64 pour éviter les problèmes
-                numeric_cols = ['average_position', 'position', 'average_ad_count', 'leaderboard_count',
-                               'percentage_ads_served', 'ad_id', 'search_date_id', 'ad_count']
-                for col in numeric_cols:
-                    if col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors='coerce').astype('float64')
+            # Pour term_ad_history, tout en float64 pour éviter les problèmes
+            numeric_cols = ['average_position', 'position', 'average_ad_count', 'leaderboard_count',
+                           'percentage_ads_served', 'ad_id', 'search_date_id', 'ad_count']
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').astype('float64')
 
             # Conversion des booléens
             bool_cols = ['is_leaderboard_ad']
@@ -413,8 +341,8 @@ def main():
         if isinstance(term_ad_config, dict):
             print(f"   Nombre de keywords: {len(term_ad_config.get('keywords', []))}")
     
-    # ROWCOUNT - utiliser page_size depuis la config si disponible
-    ROWCOUNT = term_ad_config.get('page_size', 7) if isinstance(term_ad_config, dict) else 7
+    # ROWCOUNT - utiliser page_size depuis la config si disponible, sinon 100 (pagination complète)
+    ROWCOUNT = term_ad_config.get('page_size', 100) if isinstance(term_ad_config, dict) else 100
 
     # Dates - utiliser les dates de la config si disponibles, sinon 90 jours par défaut
     if 'end_date' in term_ad_config:
@@ -452,7 +380,7 @@ def main():
 
     collector = SpyFuTermAdHistoryCollector(api_key=API_KEY)
 
-    result = collector.collect_keywords(
+    ads_data = collector.collect_keywords(
         keywords=KEYWORDS,
         country_code=COUNTRY_CODE,
         rowcount=ROWCOUNT,
@@ -460,24 +388,14 @@ def main():
         max_date=MAX_DATE
     )
 
-    ads_data = result["ads"]
-    domain_stats_data = result["domain_stats"]
-
     print(f"\n✓ Total: {len(ads_data)} annonces collectées")
-    print(f"✓ Total: {len(domain_stats_data)} statistiques de domaines collectées")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Sauvegarder les annonces
     json_filename = f"spyfu_term_ad_history_{timestamp}.json"
     collector.export_to_json(ads_data, json_filename)
     print(f"✓ Annonces sauvegardées: ../data/{json_filename}")
-    
-    # Sauvegarder les stats de domaines
-    if domain_stats_data:
-        domain_stats_filename = f"spyfu_term_domain_stats_{timestamp}.json"
-        collector.export_to_json(domain_stats_data, domain_stats_filename)
-        print(f"✓ Stats domaines sauvegardées: ../data/{domain_stats_filename}")
 
     print("\n📤 Upload vers BigQuery...")
 
@@ -489,16 +407,6 @@ def main():
         table_id="term_ad_history",
         credentials_path=CREDENTIALS_PATH
     )
-
-    # Upload des stats de domaines si disponibles
-    if domain_stats_data:
-        collector.upload_to_bigquery(
-            data=domain_stats_data,
-            project_id=PROJECT_ID,
-            dataset_id=DATASET_ID,
-            table_id="term_domain_stats",
-            credentials_path=CREDENTIALS_PATH
-        )
     
     print("\n✓ Collection et upload terminés")
 

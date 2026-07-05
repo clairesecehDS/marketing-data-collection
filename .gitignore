@@ -172,3 +172,32 @@ microsoft_clarity/test_clarity_local.py
 microsoft_clarity/verify_deployment.sh
 spyfu/DEPLOYMENT_GUIDE.md
 linkedin/ads_library_weekly/deploy_scheduler.sh
+
+# LinkedIn - scripts de test et one-off
+linkedin/test_*.py
+linkedin/run_epbs_*.py
+linkedin/upload_epbs_dma_to_bigquery.py
+linkedin/upload_epbs_final.py
+
+# SpyFu - scripts de debug, test et one-off restants
+spyfu/debug_*.py
+spyfu/test_config_country.py
+spyfu/test_domain_ad_api.py
+spyfu/test_enriched_domain_ad.py
+spyfu/test_fr_keyword.py
+spyfu/test_mba_executive.py
+spyfu/fix_country_code.py
+spyfu/upload_missing_term_ad_history.py
+spyfu/upload_newly_ranked_fixed.py
+spyfu/run_domain_ad_events.py
+spyfu/run_term_ad_history.py
+spyfu/drop_columns_domain_ad_history.sql
+spyfu/.dockerignore
+
+# Brevo - scripts de debug et test
+brevo/debug_*.py
+brevo/test_*.py
+
+# Cloud jobs - configs avec tokens (gitignorés par sous-dossier)
+linkedin/cloud_job_epbs_all_scripts/scripts/
+linkedin/cloud_job_sos_ads_library/scripts/

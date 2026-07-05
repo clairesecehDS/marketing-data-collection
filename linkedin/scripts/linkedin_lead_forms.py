@@ -40,7 +40,7 @@ class LinkedInLeadFormsClient:
         """Retourne les headers requis pour l'API LinkedIn Marketing"""
         return {
             "Authorization": f"Bearer {self.access_token}",
-            "LinkedIn-Version": "202509",
+            "LinkedIn-Version": "202601",
             "X-Restli-Protocol-Version": "2.0.0",
             "Content-Type": "application/json"
         }
@@ -120,20 +120,41 @@ class LinkedInLeadFormsClient:
         try:
             # Étape 1: Récupérer toutes les campagnes du compte
             campaigns_url = f"{self.base_url}/adAccounts/{account_id}/adCampaigns"
-            campaigns_params = {"q": "search"}
-            
-            campaigns_response = requests.get(
-                campaigns_url,
-                headers=self._get_headers(),
-                params=campaigns_params
-            )
-            
-            if campaigns_response.status_code != 200:
-                print(f"⚠️  Erreur lors de la récupération des campagnes: {campaigns_response.status_code}")
-                return form_to_campaigns
-            
-            campaigns_data = campaigns_response.json()
-            campaigns = campaigns_data.get("elements", [])
+            campaigns = []
+            start = 0
+            count = 100
+            known_total = None
+
+            while True:
+                query_params = (
+                    f"q=search"
+                    f"&search=(status:(values:List(ACTIVE,PAUSED,COMPLETED)))"
+                    f"&start={start}&count={count}"
+                )
+                full_url = f"{campaigns_url}?{query_params}"
+                campaigns_response = requests.get(full_url, headers=self._get_headers())
+
+                if campaigns_response.status_code != 200:
+                    print(f"⚠️  Erreur lors de la récupération des campagnes: {campaigns_response.status_code}")
+                    return form_to_campaigns
+
+                campaigns_data = campaigns_response.json()
+                paging = campaigns_data.get("paging", {})
+                if known_total is None and "total" in paging:
+                    known_total = paging["total"]
+
+                elements = campaigns_data.get("elements", [])
+                campaigns.extend(elements)
+
+                if len(elements) < count:
+                    break
+                start += count
+                if known_total is not None and start >= known_total:
+                    break
+                if len(campaigns) >= 5000:
+                    print(f"  ⚠️  Cap de sécurité atteint ({len(campaigns)} campagnes)")
+                    break
+
             print(f"  → {len(campaigns)} campagne(s) trouvée(s)")
             
             if not campaigns:
@@ -731,7 +752,7 @@ class LinkedInLeadFormsClient:
                 "campaign_group_id": campaign_group_id,
                 "creative_id": creative_id,
                 "device_type": device_type,
-                "custom_fields": json.dumps(custom_fields) if custom_fields else None,
+                "custom_fields": custom_fields if custom_fields else None,
                 "consent_granted": consent_granted,
                 "form_data": form_data_json,
             }
@@ -1104,14 +1125,30 @@ class LinkedInLeadFormsClient:
                     # Convertir les datetime en ISO string
                     if isinstance(value, datetime):
                         processed_row[key] = value.isoformat()
-                    # Pour custom_fields et form_data, parser le JSON string en dict
-                    elif key in ['custom_fields', 'form_data'] and value is not None:
+                    # form_data est un RECORD BQ avec:
+                    #   - answers: REPEATED RECORD (passer tel quel)
+                    #   - consentResponses: REPEATED STRING (chaque élément doit être stringifié)
+                    # custom_fields est un RECORD BQ avec des champs STRING (passer tel quel)
+                    elif key == 'form_data' and value is not None:
                         try:
-                            # Si c'est déjà une string JSON, la parser
-                            if isinstance(value, str):
-                                processed_row[key] = json.loads(value)
+                            parsed = json.loads(value) if isinstance(value, str) else value
+                            if isinstance(parsed, dict):
+                                consent = parsed.get('consentResponses', [])
+                                processed_row[key] = {
+                                    'answers': parsed.get('answers', []),
+                                    'consentResponses': [
+                                        json.dumps(c) if isinstance(c, (dict, list)) else str(c)
+                                        for c in (consent if isinstance(consent, list) else [])
+                                    ],
+                                }
                             else:
-                                processed_row[key] = value
+                                processed_row[key] = None
+                        except (json.JSONDecodeError, TypeError):
+                            processed_row[key] = None
+                    elif key == 'custom_fields' and value is not None:
+                        try:
+                            parsed = json.loads(value) if isinstance(value, str) else value
+                            processed_row[key] = parsed
                         except (json.JSONDecodeError, TypeError):
                             processed_row[key] = None
                     else:

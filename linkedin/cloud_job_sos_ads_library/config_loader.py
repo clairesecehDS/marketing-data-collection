@@ -103,6 +103,10 @@ class ConfigLoader:
 
     def get_linkedin_config(self) -> Dict[str, Any]:
         """Récupère la configuration LinkedIn"""
+        # DEBUG: Afficher la valeur de page_id
+        page_id_value = self.get('linkedin.page_id')
+        print(f"🔍 DEBUG config_loader - page_id récupéré: {page_id_value} (type: {type(page_id_value)})")
+        
         return {
             'access_token': self.get('linkedin.oauth.access_token'),
             'client_id': self.get('linkedin.oauth.client_id'),
@@ -110,6 +114,7 @@ class ConfigLoader:
             'refresh_token': self.get('linkedin.oauth.refresh_token'),
             'account_id': self.get('linkedin.account_id'),
             'organization_id': self.get('linkedin.organization_id'),
+            'page_id': page_id_value,  # Utiliser la valeur debug
             'start_date': self.get('linkedin.collection.start_date'),
             'end_date': self.get('linkedin.collection.end_date'),
             'granularity': self.get('linkedin.collection.granularity', 'DAILY'),
@@ -137,24 +142,28 @@ class ConfigLoader:
 
     def get_spyfu_config(self) -> Dict[str, Any]:
         """Récupère la configuration SpyFu"""
-        # Support de l'ancienne et nouvelle structure pour country_code
-        country_code = self.get('spyfu.country_code') or self.get('spyfu.global.country_code', 'US')
-
         return {
             'api_key': self.get('spyfu.api_key'),
-            'country_code': country_code,
+            'country_code': self.get('spyfu.global.country_code', 'FR'),
+            'page_size': self.get('spyfu.global.page_size', 1000),
             'domains': {
                 'primary': self.get('spyfu.domains.primary'),
                 'competitors': self.get('spyfu.domains.competitors', []),
-                # Construction automatique de 'all' : primary + competitors
-                'all': self.get('spyfu.domains.all') or
-                       ([self.get('spyfu.domains.primary')] + self.get('spyfu.domains.competitors', []))
+                'all': [self.get('spyfu.domains.primary')] +
+                       self.get('spyfu.domains.competitors', [])
             },
-            'keywords': self.get('spyfu.keywords', []),
-            'term_ad_history': self.get('spyfu.term_ad_history', {}),
             'comparisons': self.get('spyfu.comparisons', []),
             'filters': self.get('spyfu.filters', {}),
-            'endpoints': self.get('spyfu.endpoints', {})
+            'endpoints': {
+                'ppc_keywords': self.get('spyfu.ppc_keywords', {}),
+                'new_keywords': self.get('spyfu.new_keywords', {}),
+                'paid_serps': self.get('spyfu.paid_serps', {}),
+                'seo_keywords': self.get('spyfu.seo_keywords', {}),
+                'newly_ranked': self.get('spyfu.newly_ranked', {}),
+                'outrank_comparison': self.get('spyfu.outrank_comparison', {}),
+                'top_pages': self.get('spyfu.top_pages', {}),
+                'ppc_competitors': self.get('spyfu.ppc_competitors', {}),
+            }
         }
 
     def get_automation_config(self) -> Dict[str, Any]:
@@ -298,6 +307,7 @@ def load_config(config_path: str = "config.yaml", skip_credentials_check: bool =
 
     Args:
         config_path: Chemin vers le fichier config.yaml
+        skip_credentials_check: Si True, ne valide pas l'existence du fichier credentials
 
     Returns:
         Instance de ConfigLoader
@@ -307,14 +317,9 @@ def load_config(config_path: str = "config.yaml", skip_credentials_check: bool =
         SystemExit: Si la configuration est invalide
     """
     try:
-        # Priorité à la variable d'environnement SPYFU_CONFIG_PATH si définie
-        env_config_path = os.getenv('SPYFU_CONFIG_PATH')
-        if env_config_path:
-            config_path = env_config_path
-
         config = ConfigLoader(config_path)
 
-        if not config.validate():
+        if not config.validate(skip_credentials_check=skip_credentials_check):
             print("\n❌ Configuration invalide. Veuillez corriger les erreurs ci-dessus.")
             raise SystemExit(1)
 

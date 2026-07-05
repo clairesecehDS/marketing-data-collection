@@ -71,7 +71,7 @@ class SpyFuPPCCollector:
         params = {
             "query": domain,
             "countryCode": country_code,
-            "pageSize": min(page_size, 20),  # Limité à 20 selon budget
+            "pageSize": page_size,
             "startingRow": 1,  # SpyFu commence à 1, pas 0
             "sortBy": "SearchVolume",
             "sortOrder": "Descending"
@@ -175,7 +175,8 @@ class SpyFuPPCCollector:
         self,
         domains: List[str],
         country_code: str = "US",
-        min_search_volume: Optional[int] = None
+        min_search_volume: Optional[int] = None,
+        page_size: int = 100
     ) -> List[Dict]:
         """
         Collecte les données pour tous les domaines
@@ -184,6 +185,7 @@ class SpyFuPPCCollector:
             domains: Liste des domaines à analyser
             country_code: Code pays
             min_search_volume: Volume de recherche minimum
+            page_size: Nombre de résultats par domaine
 
         Returns:
             Liste de tous les mots-clés formatés
@@ -196,6 +198,7 @@ class SpyFuPPCCollector:
             raw_keywords = self.get_most_successful_keywords(
                 domain=domain,
                 country_code=country_code,
+                page_size=page_size,
                 min_search_volume=min_search_volume
             )
 
@@ -385,7 +388,7 @@ def main():
     CREDENTIALS_FILE = google_config['credentials_file']
     # Essayer d'abord spyfu.global.country_code, puis spyfu.country_code, par défaut US
     COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code') or spyfu_config.get('country_code', 'US')
-    PAGE_SIZE = spyfu_config.get('page_size', 1000)
+    PAGE_SIZE = ppc_config.get('page_size', spyfu_config.get('page_size', 100))
 
     # Mode: "collect" ou "upload"
     mode = sys.argv[1] if len(sys.argv) > 1 else "collect"
@@ -445,7 +448,8 @@ def main():
         keywords_data = collector.collect_all_domains(
             domains=DOMAINS,
             country_code=COUNTRY_CODE,
-            min_search_volume=min_search_volume
+            min_search_volume=min_search_volume,
+            page_size=PAGE_SIZE
         )
 
         print(f"\n✓ Total: {len(keywords_data)} mots-clés collectés")

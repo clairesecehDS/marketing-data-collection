@@ -1,0 +1,17 @@
+# Template de configuration SpyFu
+# Les valeurs seront remplacées par les variables d'environnement dans Cloud Run
+
+spyfu:
+  api_key: "${SPYFU_API_KEY}"
+
+  global:
+    country_code: "${SPYFU_COUNTRY_CODE}"
+
+  domains:
+    all: []  # Sera rempli dynamiquement via SPYFU_DOMAINS
+
+google_cloud:
+  project_id: "${GCP_PROJECT_ID}"
+  credentials_file: ""  # Non utilisé dans Cloud Run (utilise les credentials par défaut)
+  datasets:
+    spyfu: "${SPYFU_DATASET}"

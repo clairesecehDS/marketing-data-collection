@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-SpyFu Domain Stats Collector
-Récupère les statistiques complètes de domaine (SEO + PPC) pour tous les périodes historiques
+SpyFu Latest Domain Stats Collector
+Récupère uniquement les statistiques les plus récentes de domaine (SEO + PPC) via getLatestDomainStats
 """
 
 import os
@@ -19,8 +19,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from config_loader import load_config
 
 
-class SpyFuDomainStatsCollector:
-    """Collecteur de statistiques de domaine depuis l'API SpyFu"""
+class SpyFuLatestDomainStatsCollector:
+    """Collecteur de statistiques de domaine les plus récentes depuis l'API SpyFu"""
 
     BASE_URL = "https://api.spyfu.com/apis/domain_stats_api/v2"
 
@@ -34,22 +34,22 @@ class SpyFuDomainStatsCollector:
         self.api_key = api_key
         self.session = requests.Session()
 
-    def get_all_domain_stats(
+    def get_latest_domain_stats(
         self,
         domain: str,
         country_code: str = "US"
     ) -> Dict:
         """
-        Récupère toutes les statistiques d'un domaine (historique complet)
+        Récupère uniquement les statistiques les plus récentes d'un domaine
 
         Args:
             domain: Domaine à analyser
             country_code: Code pays (US, FR, GB, etc.)
 
         Returns:
-            Dictionnaire avec les statistiques complètes du domaine
+            Dictionnaire avec les statistiques les plus récentes du domaine
         """
-        endpoint = f"{self.BASE_URL}/getAllDomainStats"
+        endpoint = f"{self.BASE_URL}/getLatestDomainStats"
 
         params = {
             "domain": domain,
@@ -62,7 +62,7 @@ class SpyFuDomainStatsCollector:
         }
 
         try:
-            print(f"📊 Récupération des stats complètes pour {domain}...")
+            print(f"📊 Récupération des stats récentes pour {domain}...")
             response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
             response.raise_for_status()
 
@@ -80,8 +80,7 @@ class SpyFuDomainStatsCollector:
     def parse_domain_stats(self, stats_data: Dict, domain: str, country_code: str) -> Dict:
         """
         Parse les statistiques d'un domaine au format BigQuery
-        L'API retourne un array 'results' avec des données mensuelles historiques
-        On prend le dernier mois (données les plus récentes)
+        L'API getLatestDomainStats retourne un array 'results' avec une seule entrée (données les plus récentes)
 
         Args:
             stats_data: Données brutes depuis l'API
@@ -91,36 +90,41 @@ class SpyFuDomainStatsCollector:
         Returns:
             Dictionnaire formaté pour BigQuery
         """
-        # L'API retourne results comme array de données mensuelles
+        # L'API getLatestDomainStats retourne results comme array avec une seule entrée
         results = stats_data.get("results", [])
 
-        # IMPORTANT: L'array est ordonné du plus ANCIEN au plus RÉCENT
-        # Prendre le DERNIER élément (index -1) pour avoir les données les plus récentes
+        # Prendre le dernier élément (par sécurité, même s'il n'y en a qu'un)
         latest_stats = results[-1] if results else {}
-        
+
         # Extraire les données principales
         result = {
             # Identifiants
             "domain": domain,
             "country_code": country_code,
 
-            # Statistiques PPC (depuis les données mensuelles)
+            # Période de données
+            "search_month": latest_stats.get("searchMonth"),
+            "search_year": latest_stats.get("searchYear"),
+
+            # Statistiques PPC
             "total_ad_keywords": latest_stats.get("totalAdsPurchased"),  # Nombre d'annonces achetées
             "total_ad_budget": latest_stats.get("monthlyBudget"),
-            "total_ad_clicks": int(latest_stats.get("monthlyPaidClicks", 0)),
-            "ad_history_months": len(results),  # Nombre de mois d'historique
+            "total_ad_clicks": int(latest_stats.get("monthlyPaidClicks", 0)) if latest_stats.get("monthlyPaidClicks") else None,
+            "average_ad_rank": latest_stats.get("averageAdRank"),
 
             # Statistiques SEO
             "total_seo_keywords": latest_stats.get("totalOrganicResults"),
             "total_organic_keywords": latest_stats.get("totalOrganicResults"),  # Même valeur
-            "total_organic_traffic": int(latest_stats.get("monthlyOrganicClicks", 0)),
+            "total_organic_traffic": int(latest_stats.get("monthlyOrganicClicks", 0)) if latest_stats.get("monthlyOrganicClicks") else None,
             "total_organic_value": latest_stats.get("monthlyOrganicValue"),
+            "average_organic_rank": latest_stats.get("averageOrganicRank"),
 
             # Statistiques de domaine
-            "domain_rank": int(latest_stats.get("averageOrganicRank", 0)),
             "domain_authority": latest_stats.get("strength"),  # Score de force 0-100
+            "total_inverse_rank": latest_stats.get("totalInverseRank"),
+            "are_stats_normalized": latest_stats.get("areStatsNormalized"),
 
-            # Données brutes JSON (pour les données historiques complètes)
+            # Données brutes JSON (pour référence complète)
             "raw_stats": json.dumps(stats_data),
 
             # Métadonnées
@@ -135,7 +139,7 @@ class SpyFuDomainStatsCollector:
         country_code: str = "US"
     ) -> List[Dict]:
         """
-        Collecte les statistiques pour tous les domaines
+        Collecte les statistiques les plus récentes pour tous les domaines
 
         Args:
             domains: Liste des domaines à analyser
@@ -152,7 +156,7 @@ class SpyFuDomainStatsCollector:
 
         for i, domain in enumerate(domains, 1):
             print(f"\n[{i}/{len(domains)}] Domaine: {domain}")
-            raw_stats = self.get_all_domain_stats(
+            raw_stats = self.get_latest_domain_stats(
                 domain=domain,
                 country_code=country_code
             )
@@ -210,7 +214,7 @@ class SpyFuDomainStatsCollector:
         data: List[Dict],
         project_id: str,
         dataset_id: str = "spyfu",
-        table_id: str = "domain_stats",
+        table_id: str = "latest_domain_stats",
         credentials_path: str = "../../account-key.json"
     ):
         """
@@ -220,7 +224,7 @@ class SpyFuDomainStatsCollector:
             data: Données à uploader
             project_id: ID du projet GCP
             dataset_id: ID du dataset BigQuery
-            table_id: ID de la table
+            table_id: ID de la table (par défaut: latest_domain_stats)
             credentials_path: Chemin vers les credentials GCP
         """
         if not data:
@@ -312,13 +316,13 @@ def main():
     if mode == "upload":
         # Mode upload depuis JSON existant
         if len(sys.argv) < 3:
-            print("Usage: python spyfu_domain_stats.py upload <json_filename>")
+            print("Usage: python spyfu_latest_domain_stats.py upload <json_filename>")
             sys.exit(1)
 
         json_filename = sys.argv[2]
-        print("SpyFu Domain Stats - Upload depuis JSON")
+        print("SpyFu Latest Domain Stats - Upload depuis JSON")
 
-        collector = SpyFuDomainStatsCollector(api_key=API_KEY)
+        collector = SpyFuLatestDomainStatsCollector(api_key=API_KEY)
         stats_data = collector.load_from_json(json_filename)
 
         if stats_data:
@@ -336,12 +340,12 @@ def main():
         # Mode collection normal
         DOMAINS = spyfu_config['domains']['all']
 
-        print("SpyFu Domain Stats Collection")
+        print("SpyFu Latest Domain Stats Collection")
         print(f"📍 Pays: {COUNTRY_CODE}")
         print(f"🌐 Domaines: {', '.join(DOMAINS)}")
 
         # Initialiser le collecteur
-        collector = SpyFuDomainStatsCollector(api_key=API_KEY)
+        collector = SpyFuLatestDomainStatsCollector(api_key=API_KEY)
 
         # Collecter les données
         stats_data = collector.collect_all_domains(
@@ -353,7 +357,7 @@ def main():
 
         # Exporter en JSON
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        json_filename = f"spyfu_domain_stats_{timestamp}.json"
+        json_filename = f"spyfu_latest_domain_stats_{timestamp}.json"
         collector.export_to_json(stats_data, json_filename)
         print(f"✓ Données sauvegardées: ../data/{json_filename}")
 

@@ -40,7 +40,7 @@ class LinkedInBudgetClient:
         """Retourne les headers requis pour l'API LinkedIn Marketing"""
         return {
             "Authorization": f"Bearer {self.access_token}",
-            "LinkedIn-Version": "202509",
+            "LinkedIn-Version": "202601",
             "X-Restli-Protocol-Version": "2.0.0"
         }
 
@@ -60,22 +60,36 @@ class LinkedInBudgetClient:
             raise ValueError("account_id est requis. Passez-le en paramètre ou lors de l'initialisation.")
 
         url = f"{self.base_url}/adAccounts/{acc_id}/adCampaigns"
-        params = {"q": "search"}
+        all_campaigns = []
+        start = 0
+        count = 100
+        max_campaigns = 2000
 
-        response = requests.get(
-            url,
-            headers=self._get_headers(),
-            params=params
-        )
+        while start < max_campaigns:
+            query_params = (
+                f"q=search"
+                f"&search=(status:(values:List(ACTIVE,PAUSED,DRAFT,CANCELED,COMPLETED,ARCHIVED)))"
+                f"&start={start}&count={count}"
+            )
+            full_url = f"{url}?{query_params}"
 
-        if response.status_code != 200:
-            print(f"Erreur API: {response.status_code}")
-            print(f"URL: {response.url}")
-            print(f"Réponse: {response.text}")
-            response.raise_for_status()
+            response = requests.get(full_url, headers=self._get_headers())
 
-        data = response.json()
-        return data.get("elements", [])
+            if response.status_code != 200:
+                print(f"Erreur API: {response.status_code}")
+                print(f"URL: {full_url}")
+                print(f"Réponse: {response.text}")
+                response.raise_for_status()
+
+            data = response.json()
+            elements = data.get("elements", [])
+            all_campaigns.extend(elements)
+
+            if len(elements) < count:
+                break
+            start += count
+
+        return all_campaigns
 
     def get_creatives(self, campaign_urns: List[str], account_id: Optional[str] = None) -> List[Dict]:
         """

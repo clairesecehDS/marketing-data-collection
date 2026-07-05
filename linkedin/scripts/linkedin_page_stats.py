@@ -430,7 +430,9 @@ def main():
 
     # Charger la configuration
     print("📋 Chargement de la configuration...")
-    config = load_config()
+    # Détecter si on est dans Cloud Run Job
+    is_cloud_function = os.getenv('FUNCTION_TARGET') is not None or os.getenv('CLOUD_RUN_JOB') is not None
+    config = load_config(skip_credentials_check=is_cloud_function)
 
     # Récupérer les configurations
     linkedin_config = config.get_linkedin_config()
@@ -442,17 +444,17 @@ def main():
         print("❌ ERREUR: access_token LinkedIn non configuré dans config.yaml")
         print("   Veuillez ajouter 'access_token' dans la section linkedin.oauth")
         return
-    
+
     # Récupérer l'organization_id depuis la config
     ORGANIZATION_ID = linkedin_config.get('organization_id')
     if not ORGANIZATION_ID:
         print("❌ ERREUR: organization_id LinkedIn non configuré dans config.yaml")
         print("   Veuillez ajouter 'organization_id' dans la section linkedin")
         return
-    
+
     PROJECT_ID = google_config['project_id']
     DATASET_ID = google_config['datasets'].get('linkedin_page', 'linkedin_page')
-    CREDENTIALS_PATH = google_config['credentials_file']
+    CREDENTIALS_PATH = None if is_cloud_function else google_config.get('credentials_file')
 
     print("=" * 70)
     print("LINKEDIN PAGE STATISTICS")

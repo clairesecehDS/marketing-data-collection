@@ -57,7 +57,7 @@ class LinkedInAdsLibraryClient:
         """Retourne les headers requis pour l'API LinkedIn Ads Library"""
         return {
             "Authorization": f"Bearer {self.access_token}",
-            "LinkedIn-Version": "202509",
+            "LinkedIn-Version": "202601",
             "X-Restli-Protocol-Version": "2.0.0"
         }
 
@@ -259,8 +259,8 @@ class LinkedInAdsLibraryClient:
 
         return response.json()
 
-    def extract_ads_data(self, api_response: Dict, keyword: str = None, 
-                        advertiser_search: str = None) -> List[Dict]:
+    def extract_ads_data(self, api_response: Dict, keyword: str = None,
+                        advertiser_search: str = None, countries: List[str] = None) -> List[Dict]:
         """
         Extrait et formate les données des publicités depuis la réponse API
 
@@ -268,6 +268,7 @@ class LinkedInAdsLibraryClient:
             api_response: Réponse brute de l'API
             keyword: Mot-clé utilisé pour la recherche (optionnel)
             advertiser_search: Nom de l'annonceur recherché (optionnel)
+            countries: Liste de codes pays utilisés pour la recherche (optionnel)
 
         Returns:
             list: Liste de dictionnaires avec les données formatées
@@ -369,16 +370,9 @@ class LinkedInAdsLibraryClient:
                 if isinstance(api_response, dict) and api_response.get("metadata"):
                     date_range = api_response.get("metadata", {}).get("dateRange")
 
-                # Pays (depuis les paramètres de recherche)
-                countries = None
-                if isinstance(api_response, dict) and api_response.get("metadata"):
-                    countries_list = api_response.get("metadata", {}).get("countries", [])
-                    if countries_list:
-                        countries = ",".join(countries_list)
-
                 result = {
                     "keyword": keyword,
-                    "countries": countries,
+                    "countries": ",".join(countries) if countries else None,
                     "advertiser": advertiser_search,
                     "date_range": date_range,
                     "paging_context": paging_context,
@@ -467,12 +461,25 @@ class LinkedInAdsLibraryClient:
                         print(f"   Premier élément: {json.dumps(elements[0], indent=2, default=str)[:500]}...")
             
             # Extraire les données
-            ads = self.extract_ads_data(response, keyword=keyword, advertiser_search=advertiser)
-            
+            ads = self.extract_ads_data(response, keyword=keyword, advertiser_search=advertiser, countries=countries)
+
             if not ads:
                 print(f"  ✓ Aucune publicité supplémentaire trouvée")
                 break
-            
+
+            # Filtrer par nom d'annonceur exact si recherche par advertiser
+            # L'API LinkedIn fait un AND entre les mots, donc "International SOS"
+            # peut retourner "SOS-Hermann Gmeiner International College" par exemple
+            if advertiser:
+                ads_before = len(ads)
+                ads = [
+                    ad for ad in ads
+                    if ad.get("advertiser_name", "").lower() == advertiser.lower()
+                ]
+                filtered_out = ads_before - len(ads)
+                if filtered_out:
+                    print(f"  ⚡ {filtered_out} publicité(s) filtrée(s) (annonceur ne correspond pas exactement)")
+
             all_ads.extend(ads)
             print(f"  ✓ {len(ads)} publicité(s) récupérée(s)")
             
@@ -502,7 +509,7 @@ class LinkedInAdsLibraryClient:
                 break
             
             start += count
-        
+
         return all_ads
 
     def export_to_csv(self, data: List[Dict], filename: str):
@@ -837,8 +844,8 @@ def main():
         client.export_to_json(deduplicated_results, "ads_library.json")
         client.export_to_csv(deduplicated_results, "ads_library.csv")
         
-        # Upload vers BigQuery
-        client.upload_to_bigquery(deduplicated_results)
+        # Upload vers BigQuery — WRITE_TRUNCATE pour rafraîchir toutes les données à chaque run
+        client.upload_to_bigquery(deduplicated_results, write_disposition="WRITE_TRUNCATE", deduplicate=False)
         
         print("\n" + "=" * 70)
         print("✓ COLLECTE TERMINÉE!")

@@ -1,0 +1,14 @@
+# Configuration Cloud Scheduler pour LinkedIn Ads Library SOS
+# Exécution: Tous les lundis à 1h du matin (Europe/Paris)
+
+name: linkedin-ads-library-sos-weekly
+description: "Exécution hebdomadaire du job LinkedIn Ads Library SOS"
+schedule: "0 1 * * 1"  # Tous les lundis à 1h du matin
+time_zone: "Europe/Paris"
+attempt_deadline: "1800s"  # 30 minutes max par tentative
+retry_config:
+  retry_count: 2
+  max_retry_duration: "3600s"
+  min_backoff_duration: "300s"
+  max_backoff_duration: "900s"
+  max_doublings: 2

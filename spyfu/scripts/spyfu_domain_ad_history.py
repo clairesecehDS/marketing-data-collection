@@ -38,60 +38,80 @@ class SpyFuDomainAdHistoryCollector:
         self,
         domain: str,
         country_code: str = "US",
-        rowcount: int = 23,
+        page_size: int = 100,
         min_date: Optional[str] = None,
         max_date: Optional[str] = None
     ) -> List[Dict]:
         """
-        Récupère l'historique des annonces pour un domaine
+        Récupère TOUTES les annonces pour un domaine via pagination complète.
+        Aucune limite sur le spend ou le nombre de résultats — on veut chaque ad,
+        y compris les petites ads ciblant des termes de marque concurrents.
 
         Args:
             domain: Domaine à analyser
             country_code: Code pays (US, FR, GB, etc.)
-            rowcount: Nombre de résultats (max 23 selon budget)
+            page_size: Nombre de résultats par page (utilisé pour la pagination)
             min_date: Date minimale (format YYYY-MM-DD)
             max_date: Date maximale (format YYYY-MM-DD)
 
         Returns:
-            Liste des annonces avec leurs métriques
+            Liste complète de toutes les annonces du domaine
         """
         endpoint = f"{self.BASE_URL}/getDomainAdHistory"
 
-        # Par défaut: 3 derniers mois si non spécifié
         if not max_date:
             max_date = datetime.now().strftime("%Y-%m-%d")
         if not min_date:
             min_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
 
-        params = {
-            "domain": domain,
-            "countryCode": country_code,
-            "rowcount": rowcount,
-            "minDate": min_date,
-            "maxDate": max_date,
-            "api_key": self.api_key
-        }
+        headers = {"Accept": "application/json"}
+        all_ads = []
+        starting_row = 1
 
-        headers = {
-            "Accept": "application/json"
-        }
+        print(f"📜 Récupération complète des annonces pour {domain} ({min_date} à {max_date})...")
 
-        try:
-            print(f"📜 Récupération de l'historique des annonces pour {domain} ({min_date} à {max_date})...")
-            response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
-            response.raise_for_status()
+        while True:
+            params = {
+                "domain": domain,
+                "countryCode": country_code,
+                "rowcount": page_size,
+                "startingRow": starting_row,
+                "minDate": min_date,
+                "maxDate": max_date,
+                "api_key": self.api_key
+            }
 
-            data = response.json()
-            ads = data.get("results", [])
+            try:
+                response = self.session.get(endpoint, params=params, headers=headers, timeout=60)
+                response.raise_for_status()
 
-            print(f"✓ {len(ads)} annonces récupérées pour {domain}")
-            return ads
+                data = response.json()
+                ads = data.get("results", [])
 
-        except requests.exceptions.RequestException as e:
-            print(f"✗ Erreur API pour {domain}: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                print(f"  Détails: {e.response.text}")
-            return []
+                if not ads:
+                    break
+
+                all_ads.extend(ads)
+                print(f"  Lignes {starting_row}-{starting_row + len(ads) - 1}: {len(ads)} annonces")
+
+                # Vérifier s'il reste des pages via resultCount si disponible
+                total = data.get("resultCount")
+                if total is not None and len(all_ads) >= total:
+                    break
+
+                if len(ads) < page_size:
+                    break
+
+                starting_row += page_size
+
+            except requests.exceptions.RequestException as e:
+                print(f"✗ Erreur API pour {domain} (ligne {starting_row}): {e}")
+                if hasattr(e, 'response') and e.response is not None:
+                    print(f"  Détails: {e.response.text}")
+                break
+
+        print(f"✓ {len(all_ads)} annonces récupérées au total pour {domain}")
+        return all_ads
 
     def get_keyword_metrics(
         self,
@@ -241,18 +261,18 @@ class SpyFuDomainAdHistoryCollector:
         self,
         domains: List[str],
         country_code: str = "US",
-        rowcount: int = 23,
+        page_size: int = 100,
         min_date: Optional[str] = None,
         max_date: Optional[str] = None,
         enrich: bool = True
     ) -> List[Dict]:
         """
-        Collecte les données pour tous les domaines
+        Collecte TOUTES les annonces pour chaque domaine (pagination complète, sans filtre de taille).
 
         Args:
             domains: Liste des domaines à analyser
             country_code: Code pays
-            rowcount: Nombre de résultats par domaine
+            page_size: Taille de page pour la pagination interne
             min_date: Date minimale
             max_date: Date maximale
             enrich: Si True, enrichit avec les métriques des keywords (recommandé)
@@ -273,7 +293,7 @@ class SpyFuDomainAdHistoryCollector:
             raw_ads = self.get_domain_ad_history(
                 domain=domain,
                 country_code=country_code,
-                rowcount=rowcount,
+                page_size=page_size,
                 min_date=min_date,
                 max_date=max_date
             )
@@ -410,9 +430,6 @@ def main():
     # Essayer d'abord spyfu.global.country_code, puis spyfu.country_code, par défaut US
     COUNTRY_CODE = spyfu_config.get('global', {}).get('country_code') or spyfu_config.get('country_code', 'US')
 
-    # Paramètres depuis le fichier .odt
-    ROWCOUNT = 23  # Selon le document .odt
-
     # Dates: 3 derniers mois par défaut
     MAX_DATE = datetime.now().strftime("%Y-%m-%d")
     MIN_DATE = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
@@ -451,24 +468,23 @@ def main():
         print("=" * 80)
         print(f"📍 Pays: {COUNTRY_CODE}")
         print(f"🌐 Domaines: {', '.join(DOMAINS)}")
-        print(f"📊 Rowcount: {ROWCOUNT} par domaine")
         print(f"📅 Période: {MIN_DATE} à {MAX_DATE}")
         print("\n🔍 Enrichissement activé:")
         print("   ✅ display_url: Extrait depuis l'URL de destination")
         print("   ✅ search_volume, cost_per_click, monthly_cost: Via API PPC Keywords")
+        print("   ✅ Pagination complète — toutes les ads sans filtre de taille")
         print("=" * 80)
 
         # Initialiser le collecteur
         collector = SpyFuDomainAdHistoryCollector(api_key=API_KEY)
 
-        # Collecter les données avec enrichissement
+        # Collecter toutes les données avec pagination complète
         ads_data = collector.collect_all_domains(
             domains=DOMAINS,
             country_code=COUNTRY_CODE,
-            rowcount=ROWCOUNT,
             min_date=MIN_DATE,
             max_date=MAX_DATE,
-            enrich=True  # Active l'enrichissement
+            enrich=True
         )
 
         print(f"\n✓ Total: {len(ads_data)} annonces collectées")

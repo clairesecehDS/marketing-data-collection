@@ -151,7 +151,6 @@ class ConfigLoader:
                        ([self.get('spyfu.domains.primary')] + self.get('spyfu.domains.competitors', []))
             },
             'keywords': self.get('spyfu.keywords', []),
-            'term_ad_history': self.get('spyfu.term_ad_history', {}),
             'comparisons': self.get('spyfu.comparisons', []),
             'filters': self.get('spyfu.filters', {}),
             'endpoints': self.get('spyfu.endpoints', {})

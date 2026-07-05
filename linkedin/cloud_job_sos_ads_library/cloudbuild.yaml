@@ -1,0 +1,43 @@
+# Cloud Build configuration pour LinkedIn Ads Library SOS
+# Ce fichier définit comment construire et pousser l'image Docker
+
+steps:
+  # Étape 1: Build de l'image Docker
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/linkedin-jobs/ads-library-sos:$BUILD_ID'
+      - '-t'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/linkedin-jobs/ads-library-sos:latest'
+      - '.'
+    id: 'build-image'
+
+  # Étape 2: Push de l'image vers Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/linkedin-jobs/ads-library-sos:$BUILD_ID'
+    id: 'push-image-build-id'
+    waitFor: ['build-image']
+
+  # Étape 3: Push du tag latest
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'europe-west1-docker.pkg.dev/$PROJECT_ID/linkedin-jobs/ads-library-sos:latest'
+    id: 'push-image-latest'
+    waitFor: ['build-image']
+
+# Images à stocker dans Artifact Registry
+images:
+  - 'europe-west1-docker.pkg.dev/$PROJECT_ID/linkedin-jobs/ads-library-sos:$BUILD_ID'
+  - 'europe-west1-docker.pkg.dev/$PROJECT_ID/linkedin-jobs/ads-library-sos:latest'
+
+# Options
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+# Timeout total du build
+timeout: '1800s'
